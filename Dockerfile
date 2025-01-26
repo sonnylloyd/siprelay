@@ -22,6 +22,9 @@ RUN npx tsc
 # ----------------------
 FROM node:20-alpine
 
+# Create the /ssl directory and ensure it's writable
+RUN mkdir -p /ssl && chmod -R 777 /ssl
+
 # Set working directory
 WORKDIR /app
 
