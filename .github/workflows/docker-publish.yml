@@ -30,6 +30,6 @@ jobs:
         with:
           context: .
           push: true
-          tags: sonnylloyd/siprelay:latest
-          cache-from: type=registry,ref=sonnylloyd/siprelay:latest
+          tags: echrom/siprelay:latest
+          cache-from: type=registry,ref=echrom/siprelay:latest
           cache-to: type=inline
