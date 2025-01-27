@@ -17,9 +17,11 @@ export class UdpProxy extends BaseProxy {
   public start(): void {
     this.udpSocket.on('message', (message, rinfo) => {
       const destinationHost = this.extractSipHost(message.toString(), 'UDP');
+      this.logger.info(`Attemped connection from host ${destinationHost}`);
       if (!destinationHost) return;
 
       const targetIp = this.getTargetIp(destinationHost);
+      this.logger.info(`Found the following ip ${targetIp} for host ${destinationHost}`);
       if (!targetIp) return;
 
       this.logger.info(`Forwarding UDP SIP message to ${destinationHost} -> ${targetIp}`);
