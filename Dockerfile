@@ -43,6 +43,10 @@ EXPOSE 8080/tcp
 
 # Set a non-root user for security
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+
+# Add appuser to docker group for socket access
+RUN addgroup appuser docker  # ✅ Grant Docker permissions
+
 USER appuser
 
 # Set entrypoint

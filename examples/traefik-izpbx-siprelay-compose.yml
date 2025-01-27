@@ -181,8 +181,6 @@ networks:
     ipam:
       config:
         - subnet: 192.168.101.0/24
-  portainer:
-    driver: bridge
 
 volumes:
   certs:
