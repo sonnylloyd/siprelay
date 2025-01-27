@@ -1,0 +1,195 @@
+services:
+  traefik:
+    image: traefik:v3.2.1
+    container_name: traefik
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.allowEmptyServices=true"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entryPoints.web.http.redirections.entrypoint.scheme=https"
+      - "--entrypoints.websecure.http.tls.certresolver=myresolver"
+      - "--certificatesresolvers.myresolver.acme.email=info@domain.com"
+      - "--certificatesresolvers.myresolver.acme.tlschallenge=true"
+      - "--certificatesresolvers.myresolver.acme.storage=/certs/acme.json"
+      - "--api.dashboard=true"
+      - "--log.level=INFO"
+    labels:
+      - "traefik.enable=true"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - certs:/certs
+      - docker_sock:/var/run/docker.sock:ro
+    networks:
+      - traefik
+    restart: unless-stopped
+
+  certs-dumper:
+    image: ghcr.io/kereis/traefik-certs-dumper:latest
+    container_name: certs-dumper
+    command:
+      - --restart-containers=siprelay
+    environment:
+      - ACME_FILE_PATH=/certs/acme.json
+      - DOMAIN=pbx1.domain.com,pbx2.domain.com
+      - PRIVATE_KEY_FILE_NAME=server
+      - PRIVATE_KEY_FILE_EXT=.key
+      - CERTIFICATE_FILE_NAME=server
+      - CERTIFICATE_FILE_EXT=.crt
+      - COMBINED_PEM=ca.crt
+    volumes:
+      - certs:/certs:ro
+      - dumped_certs:/output:rw
+      - docker_sock:/var/run/docker.sock:ro
+    restart: unless-stopped
+    networks:
+      - traefik
+
+  siprelay:
+    image: echrom/siprelay:latest
+    container_name: siprelay
+    volumes:
+      - dumped_certs:/ssl  # Mount SSL certificates
+    ports:
+      - "5060:5060/udp"
+      - "5060:5060/tcp"
+      - "5061:5061/tcp"
+    expose:
+      - 8080  # API/Health Check for Traefik
+    networks:
+      sip-net:
+        ipv4_address: 192.168.100.20
+      traefik: {}  # Connect to Traefik for health checks
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.siprelay-health.rule=Path(`/health`)"
+      - "traefik.http.services.siprelay-health.loadbalancer.server.port=8080"
+    restart: unless-stopped
+
+  db1:
+    image: mariadb:10.5.9
+    command: --sql-mode=ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - MYSQL_ROOT_PASSWORD
+      - MYSQL_DATABASE
+      - MYSQL_USER
+      - MYSQL_PASSWORD
+    volumes:
+      - db1:/var/lib/mysql
+    networks:
+      - portainer
+
+  izpbx1:
+    image: izpbx-image
+    hostname: pbx1.domain.com
+    depends_on:
+      - db1
+    environment:
+      - VIRTUAL_HOST=pbx1.domain.com
+      - LETSENCRYPT_HOST=pbx1.domain.com
+      - LETSENCRYPT_EMAIL=pbx@domain.com
+      - HOSTNAME=pbx1.domain.com
+    env_file:
+      - .env
+    volumes:
+      - izpbx1:/data
+    cap_add:
+      - SYS_ADMIN
+      - NET_ADMIN
+    privileged: true
+    expose:
+      - 80
+      - 5060
+      - 5160
+    networks:
+      izpbx-net:
+        ipv4_address: 192.168.101.10
+      traefik: {}
+    labels:
+      - "traefik.enable=true"
+      - "sip-proxy-host=pbx1.domain.com"
+    restart: unless-stopped
+
+  db2:
+    image: mariadb:10.5.9
+    command: --sql-mode=ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - MYSQL_ROOT_PASSWORD
+      - MYSQL_DATABASE
+      - MYSQL_USER
+      - MYSQL_PASSWORD
+    volumes:
+      - db2:/var/lib/mysql
+    networks:
+      - portainer
+
+  izpbx2:
+    image: izpbx-image
+    hostname: pbx2.domain.com
+    depends_on:
+      - db2
+    environment:
+      - VIRTUAL_HOST=pbx2.domain.com
+      - LETSENCRYPT_HOST=pbx2.domain.com
+      - LETSENCRYPT_EMAIL=pbx@domain.com
+      - HOSTNAME=pbx2.domain.com
+    env_file:
+      - .env
+    volumes:
+      - izpbx2:/data
+    cap_add:
+      - SYS_ADMIN
+      - NET_ADMIN
+    privileged: true
+    expose:
+      - 80
+      - 5060
+      - 5160
+    networks:
+      izpbx-net:
+        ipv4_address: 192.168.101.11
+      traefik: {}
+    labels:
+      - "traefik.enable=true"
+      - "sip-proxy-host=pbx2.domain.com"
+    restart: unless-stopped
+
+networks:
+  traefik:
+    driver: bridge
+  sip-net:
+    driver: macvlan
+    driver_opts:
+      parent: eth0
+    ipam:
+      config:
+        - subnet: 192.168.100.0/24
+  izpbx-net:
+    driver: macvlan
+    driver_opts:
+      parent: eth0
+    ipam:
+      config:
+        - subnet: 192.168.101.0/24
+  portainer:
+    driver: bridge
+
+volumes:
+  certs:
+  dumped_certs:
+  db1:
+  db2:
+  izpbx1:
+  izpbx2:
+  docker_sock:
+    driver: local
