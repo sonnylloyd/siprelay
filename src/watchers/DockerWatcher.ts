@@ -1,5 +1,5 @@
 import Docker, { ContainerInfo, ContainerInspectInfo } from 'dockerode';
-import { IRecordStore, IRecord } from './../store';
+import { IRecordStore, IPValue } from './../store';
 import { Labels } from '../constants';
 import { Logger } from '../logging/Logger';
 import { ServiceWatcher } from './ServiceWatcher';
@@ -48,9 +48,9 @@ export class DockerWatcher implements ServiceWatcher {
 
       this.logger.info(`Extracted Hostname: ${hostname}`);
 
-      const { ipv4, ipv6 }: IRecord = this.extractIPAddresses(containerInfo);
-      this.records.addRecord(hostname, ipv4, ipv6);
-      this.logger.info(`Record Added: ${hostname} -> IPv4: ${ipv4}, IPv6: ${ipv6}`);
+      const ip: IPValue = this.extractIP(containerInfo);
+      this.records.addRecord(hostname, ip);
+      this.logger.info(`Record Added: ${hostname} -> IP: ${ip}`);
     } catch (error) {
       this.logger.error(`Error processing container ${containerId}:`, error);
     }
@@ -69,15 +69,10 @@ export class DockerWatcher implements ServiceWatcher {
     return containerInfo.Config?.Labels?.[Labels.SIP_PROXY_HOST];
   }
 
-  private extractIPAddresses(containerInfo: Docker.ContainerInspectInfo): IRecord {
-    let ipv4: string | null = containerInfo.NetworkSettings.IPAddress || null;
-    
-    let networks: DockerNetwork[] = Object.values(containerInfo.NetworkSettings.Networks) as DockerNetwork[];
-    let ipv6: string | null = networks.find((network) => network.GlobalIPv6Address)?.GlobalIPv6Address || null;
-  
-    return { ipv4, ipv6 };
+  private extractIP(containerInfo: ContainerInspectInfo): string | undefined {
+    return containerInfo.Config?.Labels?.[Labels.SIP_PROXY_IP];
   }
-  
+
   public async watch(): Promise<void> {
     this.logger.info('DockerWatcher started. Listening for container events...');
     

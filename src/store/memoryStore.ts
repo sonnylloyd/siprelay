@@ -3,8 +3,8 @@ import { IRecordStore, IRecord } from "./";
 export class MemoryStore implements IRecordStore {
     private records: Record<string, IRecord> = {};
   
-    public addRecord(hostname: string, ipv4: string, ipv6: string): IRecord {
-      return this.records[hostname] = { ipv4, ipv6 };
+    public addRecord(hostname: string, ip: string): IRecord {
+      return this.records[hostname] = { ip };
     }
   
     public getRecord(hostname: string): IRecord | undefined {
@@ -23,9 +23,9 @@ export class MemoryStore implements IRecordStore {
       return false;
     }
 
-    public updateRecord(hostname: string, ipv4: string, ipv6: string): IRecord | undefined {
+    public updateRecord(hostname: string, ip: string): IRecord | undefined {
       if (this.records[hostname]) {
-        const updatedRecord: IRecord = { ipv4, ipv6 };
+        const updatedRecord: IRecord = { ip };
         this.records[hostname] = updatedRecord;
         return updatedRecord;
       }

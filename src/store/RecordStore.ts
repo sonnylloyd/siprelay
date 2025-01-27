@@ -1,14 +1,13 @@
-export type IPValue = string | null;
+export type IPValue = string | null | undefined;
 
 export interface IRecord {
-    ipv4: IPValue;
-    ipv6: IPValue;
+    ip: IPValue;
 }
 
 export interface IRecordStore {
-    addRecord(hostname: string, ipv4: IPValue, ipv6: IPValue): IRecord;
+    addRecord(hostname: string, ip: IPValue): IRecord;
     getRecord(hostname: string): IRecord | undefined;
     getAllRecords(): Record<string, IRecord>;
     deleteRecord(hostname: string): boolean;
-    updateRecord(hostname: string, ipv4: IPValue, ipv6: IPValue): IRecord | undefined;
+    updateRecord(hostname: string, ip: IPValue): IRecord | undefined;
 }

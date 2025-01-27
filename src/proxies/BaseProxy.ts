@@ -23,7 +23,7 @@ export abstract class BaseProxy implements Proxy {
       this.logger.warn(`No record found for hostname: ${destinationHost}`);
       return null;
     }
-    return target.ipv6 ? target.ipv6 : target.ipv4;
+    return target.ip ? target.ip  : null;
   }
 
   abstract start(): void;
