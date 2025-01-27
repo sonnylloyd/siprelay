@@ -44,8 +44,9 @@ EXPOSE 8080/tcp
 # Set a non-root user for security
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
-# Add appuser to docker group for socket access
-RUN addgroup appuser docker  # ✅ Grant Docker permissions
+# 🛠️ Fix: Temporarily use root to set permissions
+USER root
+RUN chown appuser /var/run/docker.sock || true
 
 USER appuser
 
