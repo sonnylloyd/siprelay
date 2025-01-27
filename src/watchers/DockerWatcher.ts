@@ -46,6 +46,8 @@ export class DockerWatcher implements ServiceWatcher {
       const hostname: string | undefined = this.extractHostname(containerInfo);
       if (!hostname) return;
 
+      this.logger.info(`Extracted Hostname: ${hostname}`);
+
       const { ipv4, ipv6 }: IRecord = this.extractIPAddresses(containerInfo);
       this.records.addRecord(hostname, ipv4, ipv6);
       this.logger.info(`Record Added: ${hostname} -> IPv4: ${ipv4}, IPv6: ${ipv6}`);
@@ -107,7 +109,6 @@ export class DockerWatcher implements ServiceWatcher {
 
     const hostname: string | undefined = this.extractHostname(containerInfo);
     if (!hostname) {
-      this.logger.warn(`No hostname label found for container: ${containerId}`);
       return;
     }
 
