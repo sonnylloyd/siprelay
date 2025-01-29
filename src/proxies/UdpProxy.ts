@@ -11,7 +11,7 @@ export class UdpProxy extends BaseProxy {
   constructor(records: IRecordStore, config: Config, logger: Logger) {
     super(records, logger);
     this.config = config;
-    this.udpSocket = dgram.createSocket('udp6');
+    this.udpSocket = dgram.createSocket('udp4');
   }
 
   public start(): void {
@@ -32,7 +32,7 @@ export class UdpProxy extends BaseProxy {
       });
     });
 
-    this.udpSocket.bind(this.config.SIP_UDP_PORT, '::', () => {
+    this.udpSocket.bind(this.config.SIP_UDP_PORT, () => {
       this.logger.info(`UDP Proxy listening on port ${this.config.SIP_UDP_PORT} 📡`);
     });
   }
