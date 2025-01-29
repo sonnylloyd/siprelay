@@ -16,42 +16,63 @@ export class UdpProxy extends BaseProxy {
 
   public start(): void {
     this.udpSocket.on('message', (message, rinfo) => {
-      const destinationHost = this.extractSipHost(message.toString(), 'UDP');
-      this.logger.info(`Attemped connection from host ${destinationHost}`);
-      if (!destinationHost) return;
+      const sipMessage = message.toString();
+      const callId = this.extractCallId(sipMessage);
+
+      if (!callId) {
+        this.logger.warn(`Received SIP message without Call-ID from ${rinfo.address}:${rinfo.port}`);
+        return;
+      }
+
+      const destinationHost = this.extractSipHost(sipMessage, 'UDP');
+      if (!destinationHost) {
+        this.logger.warn(`Failed to extract SIP destination from Call-ID: ${callId}`);
+        return;
+      }
 
       const targetIp = this.getTargetIp(destinationHost);
-      if (!targetIp) return;
+      if (!targetIp) {
+        this.logger.warn(`No IP found for SIP host: ${destinationHost}`);
+        return;
+      }
 
-      this.logger.info(`Found the following ip ${targetIp} for host ${destinationHost}`);
+      this.logger.info(`Forwarding SIP message (Call-ID: ${callId}) from ${rinfo.address}:${rinfo.port} to ${targetIp}`);
 
-      // Store sender info using BaseProxy method
-      this.storeClient(targetIp, this.config.SIP_UDP_PORT, rinfo.address, rinfo.port);
-
-      this.logger.info(`Forwarding UDP SIP message to ${destinationHost} -> ${targetIp}`);
+      // Store sender info for response routing
+      this.storeClient(callId, rinfo.address, rinfo.port);
 
       this.udpSocket.send(message, this.config.SIP_UDP_PORT, targetIp, (err) => {
-        if (err) this.logger.error(`UDP Proxy error forwarding to ${targetIp}:`, err);
+        if (err) this.logger.error(`Error forwarding SIP message to ${targetIp}:`, err);
       });
     });
 
     this.udpSocket.on('message', (response, rinfo) => {
-      const originalSender = this.getClient(rinfo.address, rinfo.port);
+      const sipResponse = response.toString();
+      const callId = this.extractCallId(sipResponse);
 
-      if (originalSender) {
-        this.logger.info(`Relaying response from ${rinfo.address} back to ${originalSender.address}:${originalSender.port}`);
-
-        this.udpSocket.send(response, originalSender.port, originalSender.address, (err) => {
-          if (err) this.logger.error(`Error relaying response:`, err);
-        });
-
-        // Remove client entry after response is sent
-        this.removeClient(rinfo.address, rinfo.port);
+      if (!callId) {
+        this.logger.warn(`Received SIP response without Call-ID from ${rinfo.address}:${rinfo.port}`);
+        return;
       }
+
+      const originalSender = this.getClient(callId);
+      if (!originalSender) {
+        this.logger.warn(`No stored client for Call-ID: ${callId}, discarding response`);
+        return;
+      }
+
+      this.logger.info(`Relaying SIP response (Call-ID: ${callId}) from ${rinfo.address} to ${originalSender.address}:${originalSender.port}`);
+
+      this.udpSocket.send(response, originalSender.port, originalSender.address, (err) => {
+        if (err) this.logger.error(`Error relaying SIP response:`, err);
+      });
+
+      // Cleanup Call-ID after response
+      this.removeClient(callId);
     });
 
     this.udpSocket.bind(this.config.SIP_UDP_PORT, () => {
-      this.logger.info(`UDP Proxy listening on port ${this.config.SIP_UDP_PORT} 📡`);
+      this.logger.info(`SIP UDP Proxy listening on port ${this.config.SIP_UDP_PORT} 📡`);
     });
   }
 }

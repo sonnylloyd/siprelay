@@ -20,6 +20,12 @@ export abstract class BaseProxy implements Proxy {
     return match ? match[1] : null;
   }
 
+  /** Extracts Call-ID from a SIP message */
+  protected extractCallId(message: string): string | null {
+    const match = message.match(/Call-ID:\s*([\w\-\.@]+)/i);
+    return match ? match[1] : null;
+  }
+
   protected getTargetIp(destinationHost: string): string | null {
     const target = this.records.getRecord(destinationHost);
     if (!target) {
@@ -29,38 +35,38 @@ export abstract class BaseProxy implements Proxy {
     return target.ip ? target.ip  : null;
   }
 
-  protected storeClient(targetIp: string, targetPort: number, clientAddress: string, clientPort: number): void {
-    const key = `${targetIp}:${targetPort}`;
+  /** Stores a client (Call-ID → IP:Port) for response routing */
+  protected storeClient(callId: string, clientAddress: string, clientPort: number): void {
+    if (!callId) return;
 
-    // Remove existing timeout if entry already exists
-    if (this.clientMap.has(key)) {
-      clearTimeout(this.clientMap.get(key)!.timeout);
+    // Clear old timeout if entry already exists
+    if (this.clientMap.has(callId)) {
+      clearTimeout(this.clientMap.get(callId)!.timeout);
     }
 
-    // Set timeout for cleanup
+    // Set timeout to clean up stale entries
     const timeout = setTimeout(() => {
-      this.logger.warn(`Cleaning up stale entry for ${key}`);
-      this.clientMap.delete(key);
+      this.logger.warn(`Cleaning up stale Call-ID: ${callId}`);
+      this.clientMap.delete(callId);
     }, this.REQUEST_TIMEOUT_MS);
 
-    // Store client information
-    this.clientMap.set(key, { address: clientAddress, port: clientPort, timeout });
+    // Store client info
+    this.clientMap.set(callId, { address: clientAddress, port: clientPort, timeout });
 
-    this.logger.info(`Stored client ${clientAddress}:${clientPort} for ${targetIp}:${targetPort}`);
+    this.logger.info(`Stored Call-ID: ${callId} → ${clientAddress}:${clientPort}`);
   }
 
-  protected getClient(targetIp: string, targetPort: number) {
-    return this.clientMap.get(`${targetIp}:${targetPort}`);
+  /** Retrieves stored client info by Call-ID */
+  protected getClient(callId: string) {
+    return this.clientMap.get(callId);
   }
 
-  protected removeClient(targetIp: string, targetPort: number): void {
-    const key = `${targetIp}:${targetPort}`;
-    const client = this.clientMap.get(key);
-
-    if (client) {
-      clearTimeout(client.timeout);
-      this.clientMap.delete(key);
-      this.logger.info(`Removed client entry for ${key}`);
+  /** Removes a stored client after forwarding the response */
+  protected removeClient(callId: string): void {
+    if (this.clientMap.has(callId)) {
+      clearTimeout(this.clientMap.get(callId)!.timeout);
+      this.clientMap.delete(callId);
+      this.logger.info(`Removed Call-ID: ${callId}`);
     }
   }
 
