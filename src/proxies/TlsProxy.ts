@@ -23,7 +23,7 @@ export class TlsProxy extends BaseProxy {
       },
       (socket) => {
         socket.on('data', (message) => {
-          const destinationHost = this.extractSipHost(message.toString(), 'TLS');
+          const destinationHost = this.extractSipHost(message.toString());
           if (!destinationHost) return;
 
           const targetIp = this.getTargetIp(destinationHost);
