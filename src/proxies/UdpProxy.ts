@@ -25,11 +25,29 @@ export class UdpProxy extends BaseProxy {
 
       this.logger.info(`Found the following ip ${targetIp} for host ${destinationHost}`);
 
+      // Store sender info using BaseProxy method
+      this.storeClient(targetIp, this.config.SIP_UDP_PORT, rinfo.address, rinfo.port);
+
       this.logger.info(`Forwarding UDP SIP message to ${destinationHost} -> ${targetIp}`);
 
       this.udpSocket.send(message, this.config.SIP_UDP_PORT, targetIp, (err) => {
         if (err) this.logger.error(`UDP Proxy error forwarding to ${targetIp}:`, err);
       });
+    });
+
+    this.udpSocket.on('message', (response, rinfo) => {
+      const originalSender = this.getClient(rinfo.address, rinfo.port);
+
+      if (originalSender) {
+        this.logger.info(`Relaying response from ${rinfo.address} back to ${originalSender.address}:${originalSender.port}`);
+
+        this.udpSocket.send(response, originalSender.port, originalSender.address, (err) => {
+          if (err) this.logger.error(`Error relaying response:`, err);
+        });
+
+        // Remove client entry after response is sent
+        this.removeClient(rinfo.address, rinfo.port);
+      }
     });
 
     this.udpSocket.bind(this.config.SIP_UDP_PORT, () => {
