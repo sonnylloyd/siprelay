@@ -31,6 +31,9 @@ WORKDIR /app
 # Install Docker CLI (needed to interact with Docker API)
 RUN apk add --no-cache docker-cli
 
+# Install curl
+RUN apk add --no-cache curl
+
 # Copy compiled JS files & dependencies from builder
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
