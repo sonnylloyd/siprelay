@@ -17,16 +17,10 @@ export class UdpProxy extends BaseProxy {
   public start(): void {
     this.udpSocket.on('message', (message, rinfo) => {
       const sipMessage = message.toString();
-      const callId = this.extractCallId(sipMessage);
+      const destinationHost = this.extractSipHost(sipMessage);
 
-      if (!callId) {
-        this.logger.warn(`Received SIP message without Call-ID from ${rinfo.address}:${rinfo.port}`);
-        return;
-      }
-
-      const destinationHost = this.extractSipHost(sipMessage, 'UDP');
       if (!destinationHost) {
-        this.logger.warn(`Failed to extract SIP destination from Call-ID: ${callId}`);
+        this.logger.warn(`Failed to extract SIP destination from message: ${sipMessage}`);
         return;
       }
 
@@ -36,39 +30,12 @@ export class UdpProxy extends BaseProxy {
         return;
       }
 
-      this.logger.info(`Forwarding SIP message (Call-ID: ${callId}) from ${rinfo.address}:${rinfo.port} to ${targetIp}`);
+      this.logger.info(`Forwarding SIP message from ${rinfo.address}:${rinfo.port} to ${targetIp}`);
 
-      // Store sender info for response routing
-      this.storeClient(callId, rinfo.address, rinfo.port);
-
+      // Forward the SIP message to the target PBX
       this.udpSocket.send(message, this.config.SIP_UDP_PORT, targetIp, (err) => {
         if (err) this.logger.error(`Error forwarding SIP message to ${targetIp}:`, err);
       });
-    });
-
-    this.udpSocket.on('message', (response, rinfo) => {
-      const sipResponse = response.toString();
-      const callId = this.extractCallId(sipResponse);
-
-      if (!callId) {
-        this.logger.warn(`Received SIP response without Call-ID from ${rinfo.address}:${rinfo.port}`);
-        return;
-      }
-
-      const originalSender = this.getClient(callId);
-      if (!originalSender) {
-        this.logger.warn(`No stored client for Call-ID: ${callId}, discarding response`);
-        return;
-      }
-
-      this.logger.info(`Relaying SIP response (Call-ID: ${callId}) from ${rinfo.address} to ${originalSender.address}:${originalSender.port}`);
-
-      this.udpSocket.send(response, originalSender.port, originalSender.address, (err) => {
-        if (err) this.logger.error(`Error relaying SIP response:`, err);
-      });
-
-      // Cleanup Call-ID after response
-      this.removeClient(callId);
     });
 
     this.udpSocket.bind(this.config.SIP_UDP_PORT, () => {
