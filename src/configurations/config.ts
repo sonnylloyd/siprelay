@@ -9,4 +9,6 @@ export class Config {
 
   public readonly SIP_TLS_KEY_PATH: string = process.env.SIP_TLS_KEY_PATH || '/ssl/server.key';
   public readonly SIP_TLS_CERT_PATH: string = process.env.SIP_TLS_CERT_PATH || '/ssl/server.crt';
+
+  public readonly PROXY_IP: string = process.env.PROXY_IP || '127.0.0.1';
 }
