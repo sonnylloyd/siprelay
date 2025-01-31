@@ -51,6 +51,7 @@ export class UdpProxy extends BaseProxy {
     const modifiedMessage = this.addViaHeader(sipMessage, this.config.PROXY_IP, this.config.SIP_UDP_PORT);
     
     this.logger.info(`Forwarding SIP request from ${rinfo.address}:${rinfo.port} to ${targetIp}`);
+    this.logger.info(`Packet ${modifiedMessage}`);
     this.udpSocket.send(Buffer.from(modifiedMessage), this.config.SIP_UDP_PORT, targetIp, (err) => {
       if (err) this.logger.error(`Error forwarding SIP message to ${targetIp}:`, err);
     });
@@ -72,6 +73,7 @@ export class UdpProxy extends BaseProxy {
     const modifiedMessage = this.removeViaHeader(sipMessage, callId);
     
     this.logger.info(`Forwarding SIP response to ${clientInfo.address}:${clientInfo.port}`);
+    this.logger.info(`Packet ${modifiedMessage}`);
     this.udpSocket.send(Buffer.from(modifiedMessage), clientInfo.port, clientInfo.address, (err) => {
       if (err) this.logger.error(`Error sending response to client ${clientInfo.address}:${clientInfo.port}:`, err);
     });
