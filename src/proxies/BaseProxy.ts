@@ -76,6 +76,8 @@ export abstract class BaseProxy implements Proxy {
 
   protected addViaHeader(sipMessage: string, proxyIp: string, proxyPort: number): string {
     const viaHeader = `Via: SIP/2.0/UDP ${proxyIp}:${proxyPort};branch=z9hG4bKproxy\r\n`;
+
+    this.logger.info(`New proxy Via Header ${viaHeader}`);
   
     // Ensure we are inserting this BEFORE existing Via headers
     return sipMessage.replace(/^(Via: .*\r\n)/im, viaHeader + '$1');
