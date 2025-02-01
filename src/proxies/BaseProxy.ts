@@ -79,8 +79,14 @@ export abstract class BaseProxy implements Proxy {
 
     this.logger.info(`New proxy Via Header ${viaHeader}`);
   
-    // Ensure we are inserting this BEFORE existing Via headers
-    return sipMessage.replace(/^(Via: .*\r\n)/im, viaHeader + '$1');
+    // Insert the new Via header before the first existing Via header
+    if (/^Via: .*$/gim.test(sipMessage)) {
+      return sipMessage.replace(/^(Via: .*?$)/gim, viaHeader + '$1');
+    } else {
+      // If no Via header exists (edge case), insert after the Request-Line
+      const [startLine, ...rest] = sipMessage.split('\r\n');
+      return `${startLine}\r\n${viaHeader}${rest.join('\r\n')}`;
+    }
   }
   
 
