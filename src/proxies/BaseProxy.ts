@@ -2,6 +2,7 @@
 import { IRecordStore } from './../store';
 import { Logger } from '../logging/Logger';
 import { Proxy } from './Proxy';
+import { parse, write, MediaDescription } from 'sdp-transform';
 
 export interface ClientInfo {
   address: string;
@@ -99,13 +100,14 @@ export abstract class BaseProxy implements Proxy {
     const sdpStartIndex = sipMessage.indexOf('\r\n\r\n');
     if (sdpStartIndex === -1) return sipMessage;
     const sdp = sipMessage.slice(sdpStartIndex + 4);
-    const sdpTransform = require('sdp-transform');
-    const parsed = sdpTransform.parse(sdp);
+    const parsed = parse(sdp);
 
     if (parsed.connection) parsed.connection.ip = newIp;
-    parsed.media?.forEach(m => { if (m.connection) m.connection.ip = newIp; });
+    (parsed.media as MediaDescription[])?.forEach(m => {
+      if (m.connection) m.connection.ip = newIp;
+    });
 
-    const newSdp = sdpTransform.write(parsed);
+    const newSdp = write(parsed);
     return sipMessage.slice(0, sdpStartIndex + 4) + newSdp;
   }
 
