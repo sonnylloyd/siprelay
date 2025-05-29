@@ -1,3 +1,4 @@
+// BaseProxy.ts
 import { IRecordStore } from './../store';
 import { Logger } from '../logging/Logger';
 import { Proxy } from './Proxy';
@@ -41,14 +42,9 @@ export abstract class BaseProxy implements Proxy {
 
   protected storeClient(callId: string, address: string, port: number): void {
     this.logger.info(`Storing client ${address}:${port} for Call-ID ${callId}`);
-    
-    // Clear previous timeout if entry exists
     const existingClient = this.clientMap.get(callId);
-    if (existingClient?.timeout) {
-      clearTimeout(existingClient.timeout);
-    }
+    if (existingClient?.timeout) clearTimeout(existingClient.timeout);
 
-    // Set auto-remove timeout
     const timeout = setTimeout(() => {
       this.logger.warn(`Client ${address}:${port} for Call-ID ${callId} timed out and was removed`);
       this.clientMap.delete(callId);
@@ -63,9 +59,7 @@ export abstract class BaseProxy implements Proxy {
 
   protected removeClient(callId: string): void {
     const client = this.clientMap.get(callId);
-    if (client?.timeout) {
-      clearTimeout(client.timeout);
-    }
+    if (client?.timeout) clearTimeout(client.timeout);
     this.clientMap.delete(callId);
     this.logger.info(`Removed client for Call-ID ${callId}`);
   }
@@ -76,32 +70,44 @@ export abstract class BaseProxy implements Proxy {
 
   protected addViaHeader(sipMessage: string, proxyIp: string, proxyPort: number): string {
     const viaHeader = `Via: SIP/2.0/UDP ${proxyIp}:${proxyPort};branch=z9hG4bKproxy\r\n`;
-
     this.logger.info(`New proxy Via Header ${viaHeader}`);
-  
-    // Insert the new Via header before the first existing Via header
-    if (/^Via: .*$/gim.test(sipMessage)) {
-      return sipMessage.replace(/^(Via: .*?$)/gim, viaHeader + '$1');
-    } else {
-      // If no Via header exists (edge case), insert after the Request-Line
-      const [startLine, ...rest] = sipMessage.split('\r\n');
-      return `${startLine}\r\n${viaHeader}${rest.join('\r\n')}`;
-    }
+    return /^Via: .*$/gim.test(sipMessage)
+      ? sipMessage.replace(/^(Via: .*?$)/gim, viaHeader + '$1')
+      : `${sipMessage.split('\r\n')[0]}\r\n${viaHeader}${sipMessage.split('\r\n').slice(1).join('\r\n')}`;
   }
-  
 
   protected removeViaHeader(sipMessage: string, callId: string): string {
     const clientInfo = this.getClient(callId);
     if (!clientInfo) {
       this.logger.warn(`No client info found for Call-ID ${callId}. Sending response as-is.`);
-      return sipMessage.replace(/^Via: .*?\r\n/i, ''); // Fallback: just remove Via if no mapping
+      return sipMessage.replace(/^Via: .*?\r\n/i, '');
     }
-  
-    // Replace the proxy's Via header with the original client
     return sipMessage.replace(
       /^Via: .*?\r\n/i,
       `Via: SIP/2.0/UDP ${clientInfo.address}:${clientInfo.port};branch=z9hG4bKclient\r\n`
     );
   }
+
+  protected rewriteContactHeader(sipMessage: string, ip: string, port: number): string {
+    return sipMessage.replace(
+      /Contact: <sip:([^@>]+)@[^:>]+(?::\d+)?>/,
+      `Contact: <sip:$1@${ip}:${port}>`
+    );
+  }
+
+  protected rewriteSdpBody(sipMessage: string, newIp: string): string {
+    const sdpStartIndex = sipMessage.indexOf('\r\n\r\n');
+    if (sdpStartIndex === -1) return sipMessage;
+    const sdp = sipMessage.slice(sdpStartIndex + 4);
+    const sdpTransform = require('sdp-transform');
+    const parsed = sdpTransform.parse(sdp);
+
+    if (parsed.connection) parsed.connection.ip = newIp;
+    parsed.media?.forEach(m => { if (m.connection) m.connection.ip = newIp; });
+
+    const newSdp = sdpTransform.write(parsed);
+    return sipMessage.slice(0, sdpStartIndex + 4) + newSdp;
+  }
+
   abstract start(): void;
 }
