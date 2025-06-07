@@ -42,19 +42,30 @@ export class DockerWatcher implements ServiceWatcher {
     try {
       const containerInfo: ContainerInspectInfo | null = await this.fetchContainerInfo(containerId);
       if (!containerInfo) return;
-
+  
       const hostname: string | undefined = this.extractHostname(containerInfo);
       if (!hostname) return;
-
-      this.logger.info(`Extracted Hostname: ${hostname}`);
-
-      const ip: IPValue = this.extractIP(containerInfo);
-      this.records.addRecord(hostname, ip);
-      this.logger.info(`Record Added: ${hostname} -> IP: ${ip}`);
+  
+      const port = this.extractPort(containerInfo);
+      if (!port) {
+        this.logger.warn(`No port defined for container ${containerId} (${hostname})`);
+        return;
+      }
+  
+      const ipOverride = this.extractIP(containerInfo);
+      const containerDnsName = containerInfo.Name?.replace(/^\//, '');
+  
+      const target = ipOverride
+        ? `${ipOverride}:${port}`
+        : `${containerDnsName}:${port}`;
+  
+      this.logger.info(`Resolved target: ${hostname} → ${target}`);
+      this.records.addRecord(hostname, target);
     } catch (error) {
       this.logger.error(`Error processing container ${containerId}:`, error);
     }
   }
+  
 
   private async fetchContainerInfo(containerId: string): Promise<ContainerInspectInfo | null> {
     try {
@@ -68,10 +79,15 @@ export class DockerWatcher implements ServiceWatcher {
   private extractHostname(containerInfo: ContainerInspectInfo): string | undefined {
     return containerInfo.Config?.Labels?.[Labels.SIP_PROXY_HOST];
   }
-
-  private extractIP(containerInfo: ContainerInspectInfo): string | undefined {
-    return containerInfo.Config?.Labels?.[Labels.SIP_PROXY_IP];
+  
+  private extractPort(info: ContainerInspectInfo): string | undefined {
+    return info.Config?.Labels?.[Labels.SIP_PROXY_PORT];
   }
+  
+  private extractIP(info: ContainerInspectInfo): string | undefined {
+    return info.Config?.Labels?.[Labels.SIP_PROXY_TARGET];
+  }
+  
 
   public async watch(): Promise<void> {
     this.logger.info('DockerWatcher started. Listening for container events...');
