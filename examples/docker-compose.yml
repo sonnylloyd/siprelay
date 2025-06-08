@@ -1,0 +1,38 @@
+services:
+  siprelay:
+    image: echrom/siprelay
+    container_name: siprelay
+    ports:
+      - "5060:5060/udp"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      sipnet:
+        ipv4_address: 172.20.0.2
+
+  sip-debug-a:
+    image: echrom/sip-debug-server
+    container_name: sip-debug-a
+    labels:
+      sip-proxy-host: pbx-a.example.com
+      sip-proxy-port-udp: 5060
+    networks:
+      sipnet:
+        ipv4_address: 172.20.0.10
+
+  sip-debug-b:
+    image: echrom/sip-debug-server
+    container_name: sip-debug-b
+    labels:
+      sip-proxy-host: pbx-b.example.com
+      sip-proxy-port-udp: 5060
+    networks:
+      sipnet:
+        ipv4_address: 172.20.0.11
+
+networks:
+  sipnet:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
