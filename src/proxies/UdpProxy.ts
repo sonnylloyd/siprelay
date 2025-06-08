@@ -3,7 +3,7 @@ import dgram from 'dgram';
 import { Config } from '../configurations';
 import { BaseProxy } from './BaseProxy';
 import { Logger } from '../logging/Logger';
-import { IRecordStore } from './../store';
+import { IPValue, IRecordStore } from './../store';
 
 export class UdpProxy extends BaseProxy {
   private config: Config;
@@ -39,9 +39,9 @@ export class UdpProxy extends BaseProxy {
       return;
     }
 
-    const targetIp = this.getTargetIp(destinationHost);
-    if (!targetIp) {
-      this.logger.warn(`No IP found for SIP host: ${destinationHost}`);
+    const record:IPValue|null = this.getTargetRecord(destinationHost);
+    if (!record || !record.udpPort) {
+      this.logger.warn(`No UDP route found for SIP host: ${destinationHost}`);
       return;
     }
 
@@ -53,8 +53,8 @@ export class UdpProxy extends BaseProxy {
     modifiedMessage = this.rewriteContactHeader(modifiedMessage, this.config.PROXY_IP, this.config.SIP_UDP_PORT);
     modifiedMessage = this.rewriteSdpBody(modifiedMessage, this.config.PROXY_IP);
 
-    this.logger.info(`Forwarding SIP request to PBX ${targetIp}`);
-    this.udpSocket.send(Buffer.from(modifiedMessage), this.config.SIP_UDP_PORT, targetIp);
+    this.logger.info(`Forwarding SIP request to PBX ${record.ip}`);
+    this.udpSocket.send(Buffer.from(modifiedMessage), record.udpPort, record.ip);
   }
 
   private handleSipResponse(sipMessage: string, callId: string | null): void {

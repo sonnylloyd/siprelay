@@ -1,5 +1,5 @@
 // BaseProxy.ts
-import { IRecordStore } from './../store';
+import { IPValue, IRecordStore } from './../store';
 import { Logger } from '../logging/Logger';
 import { Proxy } from './Proxy';
 import { parse, write, MediaDescription } from 'sdp-transform';
@@ -27,14 +27,14 @@ export abstract class BaseProxy implements Proxy {
     return match ? match[1] : null;
   }
 
-  protected getTargetIp(destinationHost: string): string | null {
+  protected getTargetRecord(destinationHost: string): IPValue | null {
     const target = this.records.getRecord(destinationHost);
     if (!target) {
       this.logger.warn(`No record found for hostname: ${destinationHost}`);
       return null;
     }
-    return target.ip || null;
-  }
+    return target;
+  }  
 
   protected extractCallId(sipMessage: string): string | null {
     const match = sipMessage.match(/Call-ID: (.+)/i);

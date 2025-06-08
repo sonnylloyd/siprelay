@@ -40,32 +40,31 @@ export class DockerWatcher implements ServiceWatcher {
 
   private async processContainer(containerId: string): Promise<void> {
     try {
-      const containerInfo: ContainerInspectInfo | null = await this.fetchContainerInfo(containerId);
+      const containerInfo = await this.fetchContainerInfo(containerId);
       if (!containerInfo) return;
   
-      const hostname: string | undefined = this.extractHostname(containerInfo);
+      const hostname = this.extractHostname(containerInfo);
       if (!hostname) return;
   
-      const port = this.extractPort(containerInfo);
-      if (!port) {
-        this.logger.warn(`No port defined for container ${containerId} (${hostname})`);
-        return;
+      const ip = this.extractIP(containerInfo) ?? containerInfo.Name.replace('/', '');
+  
+      const udpPort = this.extractUdpPort(containerInfo);
+      const tlsPort = this.extractTlsPort(containerInfo);
+
+      if (udpPort || tlsPort) {
+        const record: IPValue = {
+          ip,
+          udpPort: udpPort ? Number(udpPort) : undefined,
+          tlsPort: tlsPort ? Number(tlsPort) : undefined
+        };
+
+        this.records.addRecord(hostname, record);
+        this.logger.info(`Added record: ${hostname} → ${JSON.stringify(record)}`);
       }
-  
-      const ipOverride = this.extractIP(containerInfo);
-      const containerDnsName = containerInfo.Name?.replace(/^\//, '');
-  
-      const target = ipOverride
-        ? `${ipOverride}:${port}`
-        : `${containerDnsName}:${port}`;
-  
-      this.logger.info(`Resolved target: ${hostname} → ${target}`);
-      this.records.addRecord(hostname, target);
     } catch (error) {
       this.logger.error(`Error processing container ${containerId}:`, error);
     }
-  }
-  
+  } 
 
   private async fetchContainerInfo(containerId: string): Promise<ContainerInspectInfo | null> {
     try {
@@ -80,13 +79,17 @@ export class DockerWatcher implements ServiceWatcher {
     return containerInfo.Config?.Labels?.[Labels.SIP_PROXY_HOST];
   }
   
-  private extractPort(info: ContainerInspectInfo): string | undefined {
-    return info.Config?.Labels?.[Labels.SIP_PROXY_PORT];
+  private extractIP(info: ContainerInspectInfo): string | undefined {
+    return info.Config?.Labels?.[Labels.SIP_PROXY_IP];
   }
   
-  private extractIP(info: ContainerInspectInfo): string | undefined {
-    return info.Config?.Labels?.[Labels.SIP_PROXY_TARGET];
+  private extractUdpPort(containerInfo: ContainerInspectInfo): string | undefined {
+    return containerInfo.Config?.Labels?.[Labels.SIP_PROXY_PORT_UDP];
   }
+  
+  private extractTlsPort(containerInfo: ContainerInspectInfo): string | undefined {
+    return containerInfo.Config?.Labels?.[Labels.SIP_PROXY_PORT_TLS];
+  }  
   
 
   public async watch(): Promise<void> {

@@ -1,9 +1,8 @@
 // TlsProxy.ts
 import tls from 'tls';
-import net from 'net';
 import { Config } from '../configurations';
 import { BaseProxy } from './BaseProxy';
-import { IRecordStore } from './../store';
+import { IPValue, IRecordStore } from './../store';
 import { Logger } from '../logging/Logger';
 
 export class TlsProxy extends BaseProxy {
@@ -50,9 +49,9 @@ export class TlsProxy extends BaseProxy {
       return;
     }
 
-    const targetIp = this.getTargetIp(destinationHost);
-    if (!targetIp) {
-      this.logger.warn(`No IP found for host: ${destinationHost}`);
+    const record:IPValue|null = this.getTargetRecord(destinationHost);
+    if (!record || !record.tlsPort) {
+      this.logger.warn(`No TLS route found for host: ${destinationHost}`);
       return;
     }
 
@@ -68,15 +67,15 @@ export class TlsProxy extends BaseProxy {
 
     const client = tls.connect(
       {
-        host: targetIp,
-        port: this.config.SIP_TLS_PORT,
+        host: record.ip,
+        port: record.tlsPort,
         rejectUnauthorized: false,
       },
       () => client.write(modifiedMessage)
     );
-
+    
     client.on('error', (err) => {
-      this.logger.error(`Error forwarding SIP TLS message to ${targetIp}:`, err);
+      this.logger.error(`Error forwarding SIP TLS message to ${record.ip}:`, err);
     });
   }
 
