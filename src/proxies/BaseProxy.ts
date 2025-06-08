@@ -23,7 +23,7 @@ export abstract class BaseProxy implements Proxy {
   }
 
   protected extractSipHost(message: string): string | null {
-    const match = message.match(/^(?:INVITE|REGISTER|ACK|BYE|CANCEL|OPTIONS|INFO|MESSAGE|SUBSCRIBE|NOTIFY)\s+sip:[^@]+@([^>\s;]+)/i);
+    const match = message.match(/^\s*(?:INVITE|REGISTER|ACK|BYE|CANCEL|OPTIONS|INFO|MESSAGE|SUBSCRIBE|NOTIFY)\s+sip:[^@]+@([^>\s;]+)/i);
     return match ? match[1] : null;
   }
 
