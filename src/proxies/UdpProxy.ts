@@ -49,7 +49,7 @@ export class UdpProxy extends BaseProxy {
       this.storeClient(callId, rinfo.address, rinfo.port);
     }
 
-    let modifiedMessage = this.addViaHeader(sipMessage, this.config.PROXY_IP, this.config.SIP_UDP_PORT);
+    let modifiedMessage = this.addViaHeader(sipMessage, this.config.PROXY_IP, this.config.SIP_UDP_PORT, 'UDP');
     modifiedMessage = this.rewriteContactHeader(modifiedMessage, this.config.PROXY_IP, this.config.SIP_UDP_PORT);
     modifiedMessage = this.rewriteSdpBody(modifiedMessage, this.config.PROXY_IP);
 
@@ -71,7 +71,7 @@ export class UdpProxy extends BaseProxy {
 
     this.removeClientOn2xx(callId, sipMessage);
 
-    let modifiedMessage = this.removeViaHeader(sipMessage, callId);
+    let modifiedMessage = this.removeViaHeader(sipMessage, callId, 'UDP');
     modifiedMessage = this.rewriteSdpBody(modifiedMessage, this.config.PROXY_IP);
 
     this.logger.info(`Forwarding SIP response to client at ${clientInfo.address}:${clientInfo.port}`);

@@ -61,7 +61,7 @@ export class TlsProxy extends BaseProxy {
       this.storeClient(callId, remoteAddress, remotePort);
     }
 
-    let modifiedMessage = this.addViaHeader(sipMessage, this.config.PROXY_IP, this.config.SIP_TLS_PORT);
+    let modifiedMessage = this.addViaHeader(sipMessage, this.config.PROXY_IP, this.config.SIP_TLS_PORT, 'TLS');
     modifiedMessage = this.rewriteContactHeader(modifiedMessage, this.config.PROXY_IP, this.config.SIP_TLS_PORT);
     modifiedMessage = this.rewriteSdpBody(modifiedMessage, this.config.PROXY_IP);
 
@@ -93,7 +93,7 @@ export class TlsProxy extends BaseProxy {
 
     this.removeClientOn2xx(callId, sipMessage);
 
-    let modifiedMessage = this.removeViaHeader(sipMessage, callId);
+    let modifiedMessage = this.removeViaHeader(sipMessage, callId, 'TLS');
     modifiedMessage = this.rewriteSdpBody(modifiedMessage, this.config.PROXY_IP);
 
     socket.write(modifiedMessage);

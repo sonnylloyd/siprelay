@@ -7,6 +7,8 @@ import { parse, write, MediaDescription } from 'sdp-transform';
 export interface ClientInfo {
   address: string;
   port: number;
+  branch?: string;
+  rport?: boolean;
   timeout?: NodeJS.Timeout;
 }
 
@@ -23,7 +25,7 @@ export abstract class BaseProxy implements Proxy {
   }
 
   protected extractSipHost(message: string): string | null {
-    const match = message.match(/^\s*(?:INVITE|REGISTER|ACK|BYE|CANCEL|OPTIONS|INFO|MESSAGE|SUBSCRIBE|NOTIFY)\s+sip:[^@]+@([^>\s;]+)/i);
+    const match = message.match(/\s*(?:INVITE|REGISTER|ACK|BYE|CANCEL|OPTIONS|INFO|MESSAGE|SUBSCRIBE|NOTIFY)\s+sip:[^@]+@([^>\s;]+)/i);
     return match ? match[1] : null;
   }
 
@@ -46,17 +48,30 @@ export abstract class BaseProxy implements Proxy {
     return match ? match[1].trim() : null;
   }
 
-  protected storeClient(callId: string, address: string, port: number): void {
+  protected storeClient(callId: string, address: string, port: number, sipMessage?: string): void {
     this.logger.info(`Storing client ${address}:${port} for Call-ID ${callId}`);
     const existingClient = this.clientMap.get(callId);
     if (existingClient?.timeout) clearTimeout(existingClient.timeout);
+
+    let branch: string | undefined;
+    let rport = false;
+
+    if (sipMessage) {
+      const viaMatches = sipMessage.match(/^Via:\s*(SIP\/2.0\/[^\s]+)\s+([^\s;]+)(.*)$/gim);
+      if (viaMatches && viaMatches.length > 1) {
+        const originalVia = viaMatches[1];
+        const branchMatch = originalVia.match(/branch=([^;\s]+)/i);
+        if (branchMatch?.[1]) branch = branchMatch[1];
+        rport = /;rport(?:=|$)/i.test(originalVia);
+      }
+    }
 
     const timeout = setTimeout(() => {
       this.logger.warn(`Client ${address}:${port} for Call-ID ${callId} timed out and was removed`);
       this.clientMap.delete(callId);
     }, this.CLIENT_TIMEOUT_MS);
 
-    this.clientMap.set(callId, { address, port, timeout });
+    this.clientMap.set(callId, { address, port, branch, rport, timeout });
   }
 
   protected getClient(callId: string): ClientInfo | undefined {
@@ -83,23 +98,35 @@ export abstract class BaseProxy implements Proxy {
     return /^SIP\/2.0\s+\d{3}/.test(sipMessage);
   }
 
-  protected addViaHeader(sipMessage: string, proxyIp: string, proxyPort: number): string {
-    const viaHeader = `Via: SIP/2.0/UDP ${proxyIp}:${proxyPort};branch=z9hG4bKproxy\r\n`;
+  protected addViaHeader(sipMessage: string, proxyIp: string, proxyPort: number, protocol: string): string {
+    const branch = this.generateBranch();
+    const viaHeader = `Via: SIP/2.0/${protocol} ${proxyIp}:${proxyPort};branch=${branch}\r\n`;
     this.logger.info(`New proxy Via Header ${viaHeader}`);
     return /^Via: .*$/gim.test(sipMessage)
       ? sipMessage.replace(/^(Via: .*?$)/gim, viaHeader + '$1')
       : `${sipMessage.split('\r\n')[0]}\r\n${viaHeader}${sipMessage.split('\r\n').slice(1).join('\r\n')}`;
-  }
+  }  
 
-  protected removeViaHeader(sipMessage: string, callId: string): string {
+  protected removeViaHeader(sipMessage: string, callId: string, protocol: string): string {
     const clientInfo = this.getClient(callId);
     if (!clientInfo) {
       this.logger.warn(`No client info found for Call-ID ${callId}. Sending response as-is.`);
-      return sipMessage.replace(/^Via: .*?\r\n/i, '');
+      return sipMessage;
     }
-    return sipMessage.replace(
-      /^Via: .*?\r\n/i,
-      `Via: SIP/2.0/UDP ${clientInfo.address}:${clientInfo.port};branch=z9hG4bKclient\r\n`
+
+    const viaRegex = /^Via:\s*SIP\/2.0\/[A-Z]+\s+[^;\s]+(?:;[^=\s]+(?:=[^;\s]+)?)*/gim;
+    const vias = sipMessage.match(viaRegex);
+    if (!vias || vias.length === 0) {
+      this.logger.warn(`No Via header found for Call-ID ${callId}. Sending response as-is.`);
+      return sipMessage;
+    }
+
+    let newVia = `Via: SIP/2.0/${protocol} ${clientInfo.address}:${clientInfo.port}`;
+    if (clientInfo.branch) newVia += `;branch=${clientInfo.branch}`;
+    if (clientInfo.rport) newVia += `;rport`;
+
+    return sipMessage.replace(viaRegex, (match, offset) =>
+      offset === sipMessage.indexOf(match) ? newVia : match
     );
   }
 
@@ -109,6 +136,11 @@ export abstract class BaseProxy implements Proxy {
       `Contact: <sip:$1@${ip}:${port}>`
     );
   }
+
+  private generateBranch(): string {
+    return `z9hG4bK${Math.random().toString(36).substring(2, 12)}`;
+  }
+  
 
   protected rewriteSdpBody(sipMessage: string, newIp: string): string {
     const sdpStartIndex = sipMessage.indexOf('\r\n\r\n');
