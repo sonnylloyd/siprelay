@@ -91,7 +91,7 @@ export class TlsProxy extends BaseProxy {
       return;
     }
 
-    this.removeClient(callId);
+    this.removeClientOn2xx(callId, sipMessage);
 
     let modifiedMessage = this.removeViaHeader(sipMessage, callId);
     modifiedMessage = this.rewriteSdpBody(modifiedMessage, this.config.PROXY_IP);

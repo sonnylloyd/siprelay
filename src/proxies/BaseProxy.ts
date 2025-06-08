@@ -25,7 +25,12 @@ export abstract class BaseProxy implements Proxy {
   protected extractSipHost(message: string): string | null {
     const match = message.match(/^(?:INVITE|REGISTER|ACK|BYE|CANCEL|OPTIONS|INFO|MESSAGE|SUBSCRIBE|NOTIFY)\s+sip:[^@]+@([^>\s;]+)/i);
     return match ? match[1] : null;
-  }  
+  }
+
+  protected extractStatusCode(sipMessage: string): number | null {
+    const match = sipMessage.match(/^SIP\/2.0\s+(\d{3})/);
+    return match ? parseInt(match[1], 10) : null;
+  }
 
   protected getTargetRecord(destinationHost: string): IPValue | null {
     const target = this.records.getRecord(destinationHost);
@@ -34,7 +39,7 @@ export abstract class BaseProxy implements Proxy {
       return null;
     }
     return target;
-  }  
+  }
 
   protected extractCallId(sipMessage: string): string | null {
     const match = sipMessage.match(/Call-ID: (.+)/i);
@@ -63,6 +68,15 @@ export abstract class BaseProxy implements Proxy {
     if (client?.timeout) clearTimeout(client.timeout);
     this.clientMap.delete(callId);
     this.logger.info(`Removed client for Call-ID ${callId}`);
+  }
+
+  protected removeClientOn2xx(callId: string, sipMessage: string): void {
+    const status = this.extractStatusCode(sipMessage);
+    if (status && status >= 200 && status < 300) {
+      this.removeClient(callId);
+    } else {
+      this.logger.debug(`Client for Call-ID ${callId} not removed (status code: ${status})`);
+    }
   }
 
   protected isResponse(sipMessage: string): boolean {
