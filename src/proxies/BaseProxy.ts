@@ -75,7 +75,7 @@ export abstract class BaseProxy implements Proxy {
     if (status && status >= 200 && status < 300) {
       this.removeClient(callId);
     } else {
-      this.logger.debug(`Client for Call-ID ${callId} not removed (status code: ${status})`);
+      this.logger.info(`Client for Call-ID ${callId} not removed (status code: ${status})`);
     }
   }
 
