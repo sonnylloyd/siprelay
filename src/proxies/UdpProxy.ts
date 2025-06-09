@@ -4,6 +4,7 @@ import { Config } from '../configurations';
 import { BaseProxy } from './BaseProxy';
 import { Logger } from '../logging/Logger';
 import { IPValue, IRecordStore } from './../store';
+import { SipMessage } from '../sip/SipMessage';
 
 export class UdpProxy extends BaseProxy {
   private config: Config;
@@ -17,13 +18,14 @@ export class UdpProxy extends BaseProxy {
 
   public start(): void {
     this.udpSocket.on('message', (message, rinfo) => {
-      const sipMessage = message.toString();
-      const callId = this.extractCallId(sipMessage);
+      const rawMessage = message.toString();
+      const sipMsg = new SipMessage(rawMessage);
+      const callId = sipMsg.getCallId();
 
-      if (this.isResponse(sipMessage)) {
-        this.handleSipResponse(sipMessage, callId);
+      if (sipMsg.isResponse()) {
+        this.handleSipResponse(sipMsg, callId);
       } else {
-        this.handleSipRequest(sipMessage, callId, rinfo);
+        this.handleSipRequest(sipMsg, callId, rinfo);
       }
     });
 
@@ -32,32 +34,32 @@ export class UdpProxy extends BaseProxy {
     });
   }
 
-  private handleSipRequest(sipMessage: string, callId: string | null, rinfo: dgram.RemoteInfo): void {
-    const destinationHost = this.extractSipHost(sipMessage);
+  private handleSipRequest(sipMsg: SipMessage, callId: string | undefined, rinfo: dgram.RemoteInfo): void {
+    const destinationHost = sipMsg.getTargetHost();
     if (!destinationHost) {
       this.logger.warn(`Failed to extract SIP destination from message`);
       return;
     }
 
-    const record:IPValue|null = this.getTargetRecord(destinationHost);
+    const record: IPValue | null = this.getTargetRecord(destinationHost);
     if (!record || !record.udpPort) {
       this.logger.warn(`No UDP route found for SIP host: ${destinationHost}`);
       return;
     }
 
     if (callId) {
-      this.storeClient(callId, rinfo.address, rinfo.port);
+      this.storeClient(callId, rinfo.address, rinfo.port, sipMsg.toString());
     }
 
-    let modifiedMessage = this.addViaHeader(sipMessage, this.config.PROXY_IP, this.config.SIP_UDP_PORT, 'UDP');
-    modifiedMessage = this.rewriteContactHeader(modifiedMessage, this.config.PROXY_IP, this.config.SIP_UDP_PORT);
-    modifiedMessage = this.rewriteSdpBody(modifiedMessage, this.config.PROXY_IP);
+    sipMsg.addViaTop(`Via: SIP/2.0/UDP ${this.config.PROXY_IP}:${this.config.SIP_UDP_PORT};branch=${sipMsg.generateBranch()}`);
+    sipMsg.updateContact(this.config.PROXY_IP, this.config.SIP_UDP_PORT);
+    sipMsg.updateSdpIp(this.config.PROXY_IP);
 
     this.logger.info(`Forwarding SIP request to PBX ${record.ip}`);
-    this.udpSocket.send(Buffer.from(modifiedMessage), record.udpPort, record.ip);
+    this.udpSocket.send(Buffer.from(sipMsg.toString()), record.udpPort, record.ip);
   }
 
-  private handleSipResponse(sipMessage: string, callId: string | null): void {
+  private handleSipResponse(sipMsg: SipMessage, callId: string | undefined): void {
     if (!callId) {
       this.logger.warn(`No Call-ID found in SIP response.`);
       return;
@@ -69,12 +71,16 @@ export class UdpProxy extends BaseProxy {
       return;
     }
 
-    this.removeClientOn2xx(callId, sipMessage);
+    this.removeClientOn2xx(callId, sipMsg.toString());
 
-    let modifiedMessage = this.removeViaHeader(sipMessage, callId, 'UDP');
-    modifiedMessage = this.rewriteSdpBody(modifiedMessage, this.config.PROXY_IP);
+    const newVia = `Via: SIP/2.0/UDP ${clientInfo.address}:${clientInfo.port}` +
+      (clientInfo.branch ? `;branch=${clientInfo.branch}` : '') +
+      (clientInfo.rport ? `;rport` : '');
+
+    sipMsg.replaceViaTop(newVia);
+    sipMsg.updateSdpIp(this.config.PROXY_IP);
 
     this.logger.info(`Forwarding SIP response to client at ${clientInfo.address}:${clientInfo.port}`);
-    this.udpSocket.send(Buffer.from(modifiedMessage), clientInfo.port, clientInfo.address);
+    this.udpSocket.send(Buffer.from(sipMsg.toString()), clientInfo.port, clientInfo.address);
   }
 }

@@ -4,6 +4,7 @@ import { Config } from '../configurations';
 import { BaseProxy } from './BaseProxy';
 import { IPValue, IRecordStore } from './../store';
 import { Logger } from '../logging/Logger';
+import { SipMessage } from '../sip';
 
 export class TlsProxy extends BaseProxy {
   private config: Config;
@@ -24,11 +25,11 @@ export class TlsProxy extends BaseProxy {
       },
       (socket) => {
         socket.on('data', (data) => {
-          const sipMessage = data.toString();
-          const callId = this.extractCallId(sipMessage);
-          const isResponse = this.isResponse(sipMessage);
+          const sipMessageStr = data.toString();
+          const sipMessage = new SipMessage(sipMessageStr);
+          const callId = sipMessage.getCallId();
 
-          if (isResponse) {
+          if (sipMessage.isResponse()) {
             this.handleResponseTLS(socket, sipMessage, callId);
           } else {
             this.handleRequestTLS(socket, sipMessage, callId);
@@ -42,14 +43,14 @@ export class TlsProxy extends BaseProxy {
     );
   }
 
-  private handleRequestTLS(socket: tls.TLSSocket, sipMessage: string, callId: string | null): void {
-    const destinationHost = this.extractSipHost(sipMessage);
+  private handleRequestTLS(socket: tls.TLSSocket, sipMessage: SipMessage, callId: string | undefined): void {
+    const destinationHost = sipMessage.getTargetHost();
     if (!destinationHost) {
       this.logger.warn('Failed to extract destination from SIP message');
       return;
     }
 
-    const record:IPValue|null = this.getTargetRecord(destinationHost);
+    const record: IPValue | null = this.getTargetRecord(destinationHost);
     if (!record || !record.tlsPort) {
       this.logger.warn(`No TLS route found for host: ${destinationHost}`);
       return;
@@ -58,12 +59,15 @@ export class TlsProxy extends BaseProxy {
     if (callId) {
       const remoteAddress = socket.remoteAddress || 'unknown';
       const remotePort = socket.remotePort || 5061;
-      this.storeClient(callId, remoteAddress, remotePort);
+      this.storeClient(callId, remoteAddress, remotePort, sipMessage.toString());
     }
 
-    let modifiedMessage = this.addViaHeader(sipMessage, this.config.PROXY_IP, this.config.SIP_TLS_PORT, 'TLS');
-    modifiedMessage = this.rewriteContactHeader(modifiedMessage, this.config.PROXY_IP, this.config.SIP_TLS_PORT);
-    modifiedMessage = this.rewriteSdpBody(modifiedMessage, this.config.PROXY_IP);
+    const branch = sipMessage.generateBranch();
+    sipMessage.addViaTop(`Via: SIP/2.0/TLS ${this.config.PROXY_IP}:${this.config.SIP_TLS_PORT};branch=${branch}`);
+    this.logger.info(`New proxy Via Header with branch ${branch}`);
+
+    sipMessage.updateContact(this.config.PROXY_IP, this.config.SIP_TLS_PORT);
+    sipMessage.updateSdpIp(this.config.PROXY_IP);
 
     const client = tls.connect(
       {
@@ -71,15 +75,15 @@ export class TlsProxy extends BaseProxy {
         port: record.tlsPort,
         rejectUnauthorized: false,
       },
-      () => client.write(modifiedMessage)
+      () => client.write(sipMessage.toString())
     );
-    
+
     client.on('error', (err) => {
       this.logger.error(`Error forwarding SIP TLS message to ${record.ip}:`, err);
     });
   }
 
-  private handleResponseTLS(socket: tls.TLSSocket, sipMessage: string, callId: string | null): void {
+  private handleResponseTLS(socket: tls.TLSSocket, sipMessage: SipMessage, callId: string | undefined): void {
     if (!callId) {
       this.logger.warn('Call-ID missing in SIP response');
       return;
@@ -91,12 +95,16 @@ export class TlsProxy extends BaseProxy {
       return;
     }
 
-    this.removeClientOn2xx(callId, sipMessage);
+    this.removeClientOn2xx(callId, sipMessage.toString());
 
-    let modifiedMessage = this.removeViaHeader(sipMessage, callId, 'TLS');
-    modifiedMessage = this.rewriteSdpBody(modifiedMessage, this.config.PROXY_IP);
+    const newVia = `Via: SIP/2.0/TLS ${clientInfo.address}:${clientInfo.port}` +
+      (clientInfo.branch ? `;branch=${clientInfo.branch}` : '') +
+      (clientInfo.rport ? `;rport` : '');
 
-    socket.write(modifiedMessage);
+    sipMessage.replaceViaTop(newVia);
+    sipMessage.updateSdpIp(this.config.PROXY_IP);
+
+    socket.write(sipMessage.toString());
   }
 
   public start(): void {
