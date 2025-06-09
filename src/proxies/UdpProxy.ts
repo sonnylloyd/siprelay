@@ -19,6 +19,7 @@ export class UdpProxy extends BaseProxy {
   public start(): void {
     this.udpSocket.on('message', (message, rinfo) => {
       const rawMessage = message.toString();
+      console.log('raw', rawMessage);
       const sipMsg = new SipMessage(rawMessage);
       const callId = sipMsg.getCallId();
 
