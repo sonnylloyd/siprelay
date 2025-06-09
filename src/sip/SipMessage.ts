@@ -70,11 +70,11 @@ export class SipMessage {
     return isNaN(status) ? undefined : status;
   }
 
-  public getTargetHost(): string | undefined {
-    const regex = /^\s*(?:INVITE|REGISTER|ACK|BYE|CANCEL|OPTIONS|INFO|MESSAGE|SUBSCRIBE|NOTIFY)\s+sip:[^@]+@([^>\s;]+)/i;
-    const match = this.startLine.match(regex);
-    return match?.[1];
+  public getTargetHost(): string | null {
+    const match = this.startLine.match(/sip:[^@]+@([^>\s;]+)/i);
+    return match ? match[1] : null;
   }
+  
 
   public getTopVia(): string | undefined {
     return this.getFirstHeader('Via');
