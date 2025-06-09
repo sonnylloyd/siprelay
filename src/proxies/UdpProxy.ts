@@ -19,7 +19,6 @@ export class UdpProxy extends BaseProxy {
   public start(): void {
     this.udpSocket.on('message', (message, rinfo) => {
       const rawMessage = message.toString();
-      console.log('raw', rawMessage);
       const sipMsg = new SipMessage(rawMessage);
       const callId = sipMsg.getCallId();
 
@@ -37,7 +36,6 @@ export class UdpProxy extends BaseProxy {
 
   private handleSipRequest(sipMsg: SipMessage, callId: string | undefined, rinfo: dgram.RemoteInfo): void {
     const destinationHost = sipMsg.getTargetHost();
-    console.log(destinationHost);
     if (!destinationHost) {
       this.logger.warn(`Failed to extract SIP destination from message`);
       return;
