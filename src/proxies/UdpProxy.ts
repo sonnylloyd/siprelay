@@ -51,7 +51,7 @@ export class UdpProxy extends BaseProxy {
       this.storeClient(callId, rinfo.address, rinfo.port, sipMsg.toString());
     }
 
-    sipMsg.addViaTop(`Via: SIP/2.0/UDP ${this.config.PROXY_IP}:${this.config.SIP_UDP_PORT};branch=${sipMsg.generateBranch()}`);
+    sipMsg.addViaTop(`SIP/2.0/UDP ${this.config.PROXY_IP}:${this.config.SIP_UDP_PORT};branch=${sipMsg.generateBranch()}`);
     sipMsg.updateContact(this.config.PROXY_IP, this.config.SIP_UDP_PORT);
     sipMsg.updateSdpIp(this.config.PROXY_IP);
 

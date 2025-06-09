@@ -63,7 +63,7 @@ export class TlsProxy extends BaseProxy {
     }
 
     const branch = sipMessage.generateBranch();
-    sipMessage.addViaTop(`Via: SIP/2.0/TLS ${this.config.PROXY_IP}:${this.config.SIP_TLS_PORT};branch=${branch}`);
+    sipMessage.addViaTop(`SIP/2.0/TLS ${this.config.PROXY_IP}:${this.config.SIP_TLS_PORT};branch=${branch}`);
     this.logger.info(`New proxy Via Header with branch ${branch}`);
 
     sipMessage.updateContact(this.config.PROXY_IP, this.config.SIP_TLS_PORT);
