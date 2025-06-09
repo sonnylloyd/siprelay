@@ -97,7 +97,7 @@ export class TlsProxy extends BaseProxy {
 
     this.removeClientOn2xx(callId, sipMessage.toString());
 
-    const newVia = `Via: SIP/2.0/TLS ${clientInfo.address}:${clientInfo.port}` +
+    const newVia = `SIP/2.0/TLS ${clientInfo.address}:${clientInfo.port}` +
       (clientInfo.branch ? `;branch=${clientInfo.branch}` : '') +
       (clientInfo.rport ? `;rport` : '');
 

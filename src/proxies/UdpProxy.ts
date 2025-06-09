@@ -73,7 +73,7 @@ export class UdpProxy extends BaseProxy {
 
     this.removeClientOn2xx(callId, sipMsg.toString());
 
-    const newVia = `Via: SIP/2.0/UDP ${clientInfo.address}:${clientInfo.port}` +
+    const newVia = `SIP/2.0/UDP ${clientInfo.address}:${clientInfo.port}` +
       (clientInfo.branch ? `;branch=${clientInfo.branch}` : '') +
       (clientInfo.rport ? `;rport` : '');
 
