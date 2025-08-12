@@ -5,13 +5,14 @@ import { BaseProxy } from './BaseProxy';
 import { Logger } from '../logging/Logger';
 import { IPValue, IRecordStore } from './../store';
 import { SipMessage } from '../sip/SipMessage';
+import { RtpManager } from '../media/RtpManager';
 
 export class UdpProxy extends BaseProxy {
   private config: Config;
   private udpSocket: dgram.Socket;
 
-  constructor(records: IRecordStore, config: Config, logger: Logger) {
-    super(records, logger);
+  constructor(records: IRecordStore, config: Config, logger: Logger, rtpManager: RtpManager) {
+    super(records, logger, rtpManager);
     this.config = config;
     this.udpSocket = dgram.createSocket('udp4');
   }
@@ -41,6 +42,11 @@ export class UdpProxy extends BaseProxy {
       return;
     }
 
+    if (sipMsg.isBye() || sipMsg.isCancel()) {
+      this.rtpManager.closeSession(callId);
+      this.logger.info(`Closed RTP session for ${callId} due to ${sipMsg.getMethod()}`);
+    }
+
     const record: IPValue | null = this.getTargetRecord(destinationHost);
     if (!record || !record.udpPort) {
       this.logger.warn(`No UDP route found for SIP host: ${destinationHost}`);
@@ -49,11 +55,17 @@ export class UdpProxy extends BaseProxy {
 
     if (callId) {
       this.storeClient(callId, rinfo.address, rinfo.port, sipMsg.toString());
+
+      // Setup RTP session
+      const client = { address: rinfo.address, port: rinfo.port };
+      const pbx = { address: record.ip, port: 4000 }; // default PBX RTP port (or extract from SDP)
+      this.rtpManager.createSession(callId, client, pbx);
     }
 
+    // Rewrite SIP headers
     sipMsg.addViaTop(`SIP/2.0/UDP ${this.config.PROXY_IP}:${this.config.SIP_UDP_PORT};branch=${sipMsg.generateBranch()}`);
     sipMsg.updateContact(this.config.PROXY_IP, this.config.SIP_UDP_PORT);
-    sipMsg.updateSdpIp(this.config.PROXY_IP);
+    sipMsg.updateSdpIp(this.config.PROXY_IP); // Also updates SDP to reflect proxy IP
 
     this.logger.info(`Forwarding SIP request to PBX ${record.ip}`);
     this.udpSocket.send(Buffer.from(sipMsg.toString()), record.udpPort, record.ip);

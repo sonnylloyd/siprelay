@@ -7,6 +7,7 @@ export class SipMessage {
   public startLine: string;
   public headers: Map<string, string[]>;
   public body: string;
+  private method: string;
 
   constructor(raw: string) {
     this.raw = raw;
@@ -15,6 +16,8 @@ export class SipMessage {
 
     const lines = head.split('\r\n').filter(Boolean);
     this.startLine = lines.shift() || '';
+
+    this.method = !this.isResponse() ? this.startLine.split(' ')[0].toUpperCase() : '';
 
     this.headers = new Map();
     for (const line of lines) {
@@ -146,5 +149,17 @@ export class SipMessage {
       .join('\r\n');
 
     return `${this.startLine}\r\n${headerText}\r\n\r\n${this.body}`;
+  }
+
+  public getMethod(): string {
+    return this.method;
+  }
+  
+  public isBye(): boolean {
+    return this.method === 'BYE';
+  }
+  
+  public isCancel(): boolean {
+    return this.method === 'CANCEL';
   }
 }

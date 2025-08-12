@@ -3,24 +3,29 @@ import { IPValue, IRecordStore } from './../store';
 import { Logger } from '../logging/Logger';
 import { Proxy } from './Proxy';
 import { SipMessage } from './../sip';
+import { RtpManager } from '../media/RtpManager';
 
 export interface ClientInfo {
-  address: string;
-  port: number;
-  branch?: string;
-  rport?: boolean;
-  timeout?: NodeJS.Timeout;
+  address: string;           // IP address of the SIP client
+  port: number;              // SIP port the client is listening on
+  rtpPort?: number;          // optional: client RTP port
+  rtcpPort?: number;         // optional: client RTCP port
+  branch?: string;           // SIP Via branch parameter
+  rport?: boolean;           // whether the client used rport
+  timeout?: NodeJS.Timeout;  // to track timeout and cleanup
 }
 
 export abstract class BaseProxy implements Proxy {
   protected records: IRecordStore;
   protected logger: Logger;
   protected clientMap: Map<string, ClientInfo>;
+  protected rtpManager: RtpManager;
   private CLIENT_TIMEOUT_MS = 30000; // 30 seconds timeout
 
-  constructor(records: IRecordStore, logger: Logger) {
+  constructor(records: IRecordStore, logger: Logger, rtpManager: RtpManager) {
     this.records = records;
     this.logger = logger;
+    this.rtpManager = rtpManager;
     this.clientMap = new Map();
   }
 

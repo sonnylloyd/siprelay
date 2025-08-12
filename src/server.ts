@@ -2,8 +2,8 @@ import { Config } from './configurations';
 import { MemoryStore } from './store';
 import { DockerWatcher } from './watchers';
 import { ConsoleLogger } from './logging';
-import { TlsProxy } from './proxies/TlsProxy';
-import { UdpProxy } from './proxies/UdpProxy';
+import { TlsProxy, UdpProxy } from './proxies';
+import { RtpManager } from './media';
 import { ApiServer } from './http';
 import * as fs from 'fs';
 
@@ -16,12 +16,15 @@ const config = new Config();
 // Initialize PBX Records store
 const records = new MemoryStore();
 
+// Initialize rtp manager
+const rtpManager = new RtpManager(logger);
+
 // Initialize Docker Watcher to dynamically update PBX records
 const dockerWatcher = new DockerWatcher(records, logger);
 dockerWatcher.watch();
 
 // Initialize Proxies
-const udpProxy = new UdpProxy(records, config, logger);
+const udpProxy = new UdpProxy(records, config, logger, rtpManager);
 udpProxy.start();
 
 // Check if TLS key and cert files exist, if so, start the TLS proxy
