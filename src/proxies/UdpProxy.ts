@@ -48,7 +48,7 @@ export class UdpProxy extends BaseProxy {
     }
 
     if (callId) {
-      this.storeClient(callId, rinfo.address, rinfo.port, sipMsg.toString());
+      this.storeClient(callId, rinfo.address, rinfo.port, sipMsg);
     }
 
     sipMsg.addViaTop(`SIP/2.0/UDP ${this.config.PROXY_IP}:${this.config.SIP_UDP_PORT};branch=${sipMsg.generateBranch()}`);
@@ -71,7 +71,7 @@ export class UdpProxy extends BaseProxy {
       return;
     }
 
-    this.removeClientOn2xx(callId, sipMsg.toString());
+    this.removeClientOn2xx(callId, sipMsg);
 
     const newVia = `SIP/2.0/UDP ${clientInfo.address}:${clientInfo.port}` +
       (clientInfo.branch ? `;branch=${clientInfo.branch}` : '') +

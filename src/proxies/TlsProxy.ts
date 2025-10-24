@@ -1,4 +1,5 @@
 // TlsProxy.ts
+import fs from 'fs';
 import tls from 'tls';
 import { Config } from '../configurations';
 import { BaseProxy } from './BaseProxy';
@@ -9,20 +10,18 @@ import { SipMessage } from '../sip';
 export class TlsProxy extends BaseProxy {
   private config: Config;
   private server: tls.Server;
+  private tlsOptions: tls.TlsOptions;
 
   constructor(records: IRecordStore, config: Config, logger: Logger) {
     super(records, logger);
     this.config = config;
+    this.tlsOptions = this.loadCredentials();
     this.server = this.createServer();
   }
 
   private createServer(): tls.Server {
     return tls.createServer(
-      {
-        key: this.config.SIP_TLS_KEY_PATH,
-        cert: this.config.SIP_TLS_CERT_PATH,
-        requestCert: false,
-      },
+      this.tlsOptions,
       (socket) => {
         socket.on('data', (data) => {
           const sipMessageStr = data.toString();
@@ -43,6 +42,21 @@ export class TlsProxy extends BaseProxy {
     );
   }
 
+  private loadCredentials(): tls.TlsOptions {
+    try {
+      const key = fs.readFileSync(this.config.SIP_TLS_KEY_PATH);
+      const cert = fs.readFileSync(this.config.SIP_TLS_CERT_PATH);
+      return {
+        key,
+        cert,
+        requestCert: false,
+      };
+    } catch (error) {
+      this.logger.error('Failed to load TLS credentials', error);
+      throw error;
+    }
+  }
+
   private handleRequestTLS(socket: tls.TLSSocket, sipMessage: SipMessage, callId: string | undefined): void {
     const destinationHost = sipMessage.getTargetHost();
     if (!destinationHost) {
@@ -59,7 +73,7 @@ export class TlsProxy extends BaseProxy {
     if (callId) {
       const remoteAddress = socket.remoteAddress || 'unknown';
       const remotePort = socket.remotePort || 5061;
-      this.storeClient(callId, remoteAddress, remotePort, sipMessage.toString());
+      this.storeClient(callId, remoteAddress, remotePort, sipMessage);
     }
 
     const branch = sipMessage.generateBranch();
@@ -95,7 +109,7 @@ export class TlsProxy extends BaseProxy {
       return;
     }
 
-    this.removeClientOn2xx(callId, sipMessage.toString());
+    this.removeClientOn2xx(callId, sipMessage);
 
     const newVia = `SIP/2.0/TLS ${clientInfo.address}:${clientInfo.port}` +
       (clientInfo.branch ? `;branch=${clientInfo.branch}` : '') +

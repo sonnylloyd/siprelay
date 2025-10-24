@@ -33,7 +33,7 @@ export abstract class BaseProxy implements Proxy {
     return target;
   }
 
-  protected storeClient(callId: string, address: string, port: number, sipMessage?: string): void {
+  protected storeClient(callId: string, address: string, port: number, sipMessage?: SipMessage): void {
     this.logger.info(`Storing client ${address}:${port} for Call-ID ${callId}`);
     const existingClient = this.clientMap.get(callId);
     if (existingClient?.timeout) clearTimeout(existingClient.timeout);
@@ -42,11 +42,10 @@ export abstract class BaseProxy implements Proxy {
     let rport = false;
 
     if (sipMessage) {
-      const msg = new SipMessage(sipMessage);
-      const topVia = msg.getTopVia();
+      const topVia = sipMessage.getTopVia();
       if (topVia) {
-        branch = msg.getBranchFromVia(topVia);
-        rport = msg.hasRPort(topVia);
+        branch = sipMessage.getBranchFromVia(topVia);
+        rport = sipMessage.hasRPort(topVia);
       }
     }
 
@@ -69,9 +68,8 @@ export abstract class BaseProxy implements Proxy {
     this.logger.info(`Removed client for Call-ID ${callId}`);
   }
 
-  protected removeClientOn2xx(callId: string, sipMessage: string): void {
-    const msg = new SipMessage(sipMessage);
-    const status = msg.getStatusCode();
+  protected removeClientOn2xx(callId: string, sipMessage: SipMessage): void {
+    const status = sipMessage.getStatusCode();
     if (status && status >= 200 && status < 300) {
       this.removeClient(callId);
     } else {
