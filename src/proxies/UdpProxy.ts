@@ -51,11 +51,9 @@ export class UdpProxy extends BaseProxy {
       this.storeClient(callId, rinfo.address, rinfo.port, sipMsg);
     }
 
-    sipMsg.addViaTop(`SIP/2.0/UDP ${this.config.PROXY_IP}:${this.config.SIP_UDP_PORT};branch=${sipMsg.generateBranch()}`);
-    sipMsg.updateContact(this.config.PROXY_IP, this.config.SIP_UDP_PORT);
-    sipMsg.updateSdpIp(this.config.PROXY_IP);
+    const branch = this.addProxyHeaders(sipMsg, 'UDP', this.config.PROXY_IP, this.config.SIP_UDP_PORT);
 
-    this.logger.info(`Forwarding SIP request to PBX ${record.ip}`);
+    this.logger.info(`Forwarding SIP request to PBX ${record.ip} (branch ${branch})`);
     this.udpSocket.send(Buffer.from(sipMsg.toString()), record.udpPort, record.ip);
   }
 
@@ -73,12 +71,7 @@ export class UdpProxy extends BaseProxy {
 
     this.removeClientOn2xx(callId, sipMsg);
 
-    const newVia = `SIP/2.0/UDP ${clientInfo.address}:${clientInfo.port}` +
-      (clientInfo.branch ? `;branch=${clientInfo.branch}` : '') +
-      (clientInfo.rport ? `;rport` : '');
-
-    sipMsg.replaceViaTop(newVia);
-    sipMsg.updateSdpIp(this.config.PROXY_IP);
+    this.prepareSipResponseForClient(sipMsg, clientInfo, 'UDP', this.config.PROXY_IP);
 
     this.logger.info(`Forwarding SIP response to client at ${clientInfo.address}:${clientInfo.port}`);
     this.udpSocket.send(Buffer.from(sipMsg.toString()), clientInfo.port, clientInfo.address);

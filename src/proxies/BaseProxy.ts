@@ -4,6 +4,8 @@ import { Logger } from '../logging/Logger';
 import { Proxy } from './Proxy';
 import { SipMessage } from './../sip';
 
+export type SipTransport = 'UDP' | 'TLS' | 'TCP';
+
 export interface ClientInfo {
   address: string;
   port: number;
@@ -75,6 +77,51 @@ export abstract class BaseProxy implements Proxy {
     } else {
       this.logger.info(`Client for Call-ID ${callId} not removed (status code: ${status})`);
     }
+  }
+
+  protected addProxyHeaders(
+    sipMessage: SipMessage,
+    transport: SipTransport,
+    proxyIp: string,
+    proxyPort: number
+  ): string {
+    const branch = sipMessage.generateBranch();
+    const viaHeader = this.buildProxyViaHeader(transport, proxyIp, proxyPort, branch);
+    sipMessage.addViaTop(viaHeader);
+    sipMessage.updateContact(proxyIp, proxyPort);
+    sipMessage.updateSdpIp(proxyIp);
+    return branch;
+  }
+
+  protected prepareSipResponseForClient(
+    sipMessage: SipMessage,
+    clientInfo: ClientInfo,
+    transport: SipTransport,
+    proxyIp: string
+  ): void {
+    const viaHeader = this.buildClientViaHeader(transport, clientInfo);
+    sipMessage.replaceViaTop(viaHeader);
+    sipMessage.updateSdpIp(proxyIp);
+  }
+
+  private buildProxyViaHeader(
+    transport: SipTransport,
+    host: string,
+    port: number,
+    branch: string
+  ): string {
+    return `SIP/2.0/${transport} ${host}:${port};branch=${branch}`;
+  }
+
+  private buildClientViaHeader(transport: SipTransport, clientInfo: ClientInfo): string {
+    const parts = [`SIP/2.0/${transport} ${clientInfo.address}:${clientInfo.port}`];
+    if (clientInfo.branch) {
+      parts.push(`;branch=${clientInfo.branch}`);
+    }
+    if (clientInfo.rport) {
+      parts.push(`;rport`);
+    }
+    return parts.join('');
   }
 
   abstract start(): void;
