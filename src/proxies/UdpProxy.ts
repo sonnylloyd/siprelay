@@ -10,13 +10,17 @@ export class UdpProxy extends BaseProxy {
   private config: Config;
   private udpSocket: dgram.Socket;
 
-  constructor(records: IRecordStore, config: Config, logger: Logger) {
+  constructor(records: IRecordStore, config: Config, logger: Logger, socket?: dgram.Socket) {
     super(records, logger);
     this.config = config;
-    this.udpSocket = dgram.createSocket('udp4');
+    this.udpSocket = socket ?? dgram.createSocket('udp4');
   }
 
   public start(): void {
+    this.udpSocket.on('error', (err) => {
+      this.logger.error('SIP UDP socket error', err);
+    });
+
     this.udpSocket.on('message', (message, rinfo) => {
       const rawMessage = message.toString();
       const sipMsg = new SipMessage(rawMessage);
@@ -48,7 +52,7 @@ export class UdpProxy extends BaseProxy {
     }
 
     if (callId) {
-      this.storeClient(callId, rinfo.address, rinfo.port, sipMsg);
+      this.storeClient(callId, rinfo.address, rinfo.port, { sipMessage: sipMsg });
     }
 
     const branch = this.addProxyHeaders(sipMsg, 'UDP', this.config.PROXY_IP, this.config.SIP_UDP_PORT);
@@ -68,8 +72,6 @@ export class UdpProxy extends BaseProxy {
       this.logger.warn(`No client info found for Call-ID ${callId}`);
       return;
     }
-
-    this.removeClientOn2xx(callId, sipMsg);
 
     this.prepareSipResponseForClient(sipMsg, clientInfo, 'UDP', this.config.PROXY_IP);
 

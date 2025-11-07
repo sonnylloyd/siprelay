@@ -1,4 +1,5 @@
 // BaseProxy.ts
+import type tls from 'tls';
 import { IPValue, IRecordStore } from './../store';
 import { Logger } from '../logging/Logger';
 import { Proxy } from './Proxy';
@@ -12,6 +13,8 @@ export interface ClientInfo {
   branch?: string;
   rport?: boolean;
   timeout?: NodeJS.Timeout;
+  socket?: tls.TLSSocket;
+  upstreamKey?: string;
 }
 
 export abstract class BaseProxy implements Proxy {
@@ -35,32 +38,49 @@ export abstract class BaseProxy implements Proxy {
     return target;
   }
 
-  protected storeClient(callId: string, address: string, port: number, sipMessage?: SipMessage): void {
+  protected storeClient(
+    callId: string,
+    address: string,
+    port: number,
+    options: {
+      sipMessage?: SipMessage;
+      transportSocket?: tls.TLSSocket;
+      upstreamKey?: string;
+    } = {}
+  ): void {
     this.logger.info(`Storing client ${address}:${port} for Call-ID ${callId}`);
     const existingClient = this.clientMap.get(callId);
-    if (existingClient?.timeout) clearTimeout(existingClient.timeout);
 
-    let branch: string | undefined;
-    let rport = false;
+    let branch = existingClient?.branch;
+    let rport = existingClient?.rport ?? false;
 
-    if (sipMessage) {
-      const topVia = sipMessage.getTopVia();
+    if (options.sipMessage) {
+      const topVia = options.sipMessage.getTopVia();
       if (topVia) {
-        branch = sipMessage.getBranchFromVia(topVia);
-        rport = sipMessage.hasRPort(topVia);
+        branch = options.sipMessage.getBranchFromVia(topVia) ?? branch;
+        rport = options.sipMessage.hasRPort(topVia);
       }
     }
 
-    const timeout = setTimeout(() => {
-      this.logger.warn(`Client ${address}:${port} for Call-ID ${callId} timed out and was removed`);
-      this.clientMap.delete(callId);
-    }, this.CLIENT_TIMEOUT_MS);
+    const client: ClientInfo = {
+      address,
+      port,
+      branch,
+      rport,
+      socket: options.transportSocket ?? existingClient?.socket,
+      upstreamKey: options.upstreamKey ?? existingClient?.upstreamKey,
+    };
 
-    this.clientMap.set(callId, { address, port, branch, rport, timeout });
+    this.clientMap.set(callId, client);
+    this.resetClientTimeout(callId, client);
   }
 
   protected getClient(callId: string): ClientInfo | undefined {
-    return this.clientMap.get(callId);
+    const client = this.clientMap.get(callId);
+    if (client) {
+      this.resetClientTimeout(callId, client);
+    }
+    return client;
   }
 
   protected removeClient(callId: string): void {
@@ -68,15 +88,6 @@ export abstract class BaseProxy implements Proxy {
     if (client?.timeout) clearTimeout(client.timeout);
     this.clientMap.delete(callId);
     this.logger.info(`Removed client for Call-ID ${callId}`);
-  }
-
-  protected removeClientOn2xx(callId: string, sipMessage: SipMessage): void {
-    const status = sipMessage.getStatusCode();
-    if (status && status >= 200 && status < 300) {
-      this.removeClient(callId);
-    } else {
-      this.logger.info(`Client for Call-ID ${callId} not removed (status code: ${status})`);
-    }
   }
 
   protected addProxyHeaders(
@@ -122,6 +133,16 @@ export abstract class BaseProxy implements Proxy {
       parts.push(`;rport`);
     }
     return parts.join('');
+  }
+
+  private resetClientTimeout(callId: string, client: ClientInfo): void {
+    if (client.timeout) {
+      clearTimeout(client.timeout);
+    }
+    client.timeout = setTimeout(() => {
+      this.logger.warn(`Client ${client.address}:${client.port} for Call-ID ${callId} timed out and was removed`);
+      this.clientMap.delete(callId);
+    }, this.CLIENT_TIMEOUT_MS);
   }
 
   abstract start(): void;
