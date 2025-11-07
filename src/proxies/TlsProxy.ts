@@ -8,9 +8,12 @@ import { IPValue, IRecordStore } from './../store';
 import { Logger } from '../logging/Logger';
 import { SipMessage } from '../sip';
 
+type ConnectionListener = (socket: tls.TLSSocket) => void;
+type ServerFactory = (options: tls.TlsOptions, listener: ConnectionListener) => tls.Server;
+
 type TlsProxyOverrides = {
   tlsOptions?: tls.TlsOptions;
-  serverFactory?: (options: tls.TlsOptions, listener: tls.ConnectionListener) => tls.Server;
+  serverFactory?: ServerFactory;
   tlsConnect?: typeof tls.connect;
 };
 
@@ -18,7 +21,7 @@ export class TlsProxy extends BaseProxy {
   private config: Config;
   private server: tls.Server;
   private tlsOptions: tls.TlsOptions;
-  private readonly serverFactory: (options: tls.TlsOptions, listener: tls.ConnectionListener) => tls.Server;
+  private readonly serverFactory: ServerFactory;
   private readonly tlsConnectFn: typeof tls.connect;
   private upstreamConnections: Map<string, { socket: tls.TLSSocket; idleTimer?: NodeJS.Timeout }>;
   private connectionPromises: Map<string, Promise<tls.TLSSocket>>;
