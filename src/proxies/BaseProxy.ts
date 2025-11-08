@@ -1,6 +1,6 @@
 // BaseProxy.ts
 import type tls from 'tls';
-import { IPValue, IRecordStore } from './../store';
+import { IPValue, IRecordStore, RegistrationStore } from './../store';
 import { Logger } from '../logging/Logger';
 import { Proxy } from './Proxy';
 import { SipMessage } from './../sip';
@@ -21,12 +21,14 @@ export abstract class BaseProxy implements Proxy {
   protected records: IRecordStore;
   protected logger: Logger;
   protected clientMap: Map<string, ClientInfo>;
+  protected registrationStore: RegistrationStore;
   private CLIENT_TIMEOUT_MS = 30000; // 30 seconds timeout
 
-  constructor(records: IRecordStore, logger: Logger) {
+  constructor(records: IRecordStore, logger: Logger, registrationStore: RegistrationStore) {
     this.records = records;
     this.logger = logger;
     this.clientMap = new Map();
+    this.registrationStore = registrationStore;
   }
 
   protected getTargetRecord(destinationHost: string): IPValue | null {

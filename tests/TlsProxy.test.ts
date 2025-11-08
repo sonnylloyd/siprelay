@@ -3,7 +3,7 @@ import { setImmediate } from 'timers';
 import tls from 'tls';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TlsProxy } from '../src/proxies/TlsProxy';
-import { MemoryStore } from '../src/store';
+import { MemoryStore, RegistrationStore } from '../src/store';
 import { createTestConfig, createTestLogger } from './utils';
 import type { Logger } from '../src/logging/Logger';
 import type { Config } from '../src/configurations';
@@ -91,6 +91,7 @@ describe('TlsProxy', () => {
   let tlsProxy: TlsProxy;
   let logger: Logger;
   let config: Config;
+  let registrationStore: RegistrationStore;
 
   beforeEach(() => {
     clientSocket = new FakeTLSSocket('client');
@@ -100,6 +101,7 @@ describe('TlsProxy', () => {
     fakeServer = new FakeTlsServer();
     logger = createTestLogger();
     config = createTestConfig({ SIP_TLS_PORT: 5061, PROXY_IP: '203.0.113.5' });
+    registrationStore = new RegistrationStore();
 
     const serverFactory = vi.fn((_options: tls.TlsOptions, listener: tls.ConnectionListener) => {
       fakeServer.setListener(listener);
@@ -114,7 +116,7 @@ describe('TlsProxy', () => {
     const records = new MemoryStore();
     records.addRecord('pbx.internal', { ip: '10.0.0.50', tlsPort: 5071 });
 
-    tlsProxy = new TlsProxy(records, config, logger, {
+    tlsProxy = new TlsProxy(records, config, logger, registrationStore, {
       tlsOptions: { key: Buffer.from('key'), cert: Buffer.from('cert') },
       serverFactory,
       tlsConnect,

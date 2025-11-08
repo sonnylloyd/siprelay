@@ -2,3 +2,4 @@
 .env
 /dist
 tests/**/*.js
+/certs

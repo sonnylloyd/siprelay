@@ -31,4 +31,13 @@ export class MemoryStore implements IRecordStore {
     }
     return undefined;
   }
+
+  public findHostnameByIp(ip: string): string | undefined {
+    for (const [hostname, value] of Object.entries(this.records)) {
+      if (value.ip === ip) {
+        return hostname;
+      }
+    }
+    return undefined;
+  }
 }

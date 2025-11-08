@@ -1,0 +1,4 @@
+tls:
+  certificates:
+    - certFile: /certs/_wildcard.test.local+1.pem
+      keyFile: /certs/_wildcard.test.local+1-key.pem

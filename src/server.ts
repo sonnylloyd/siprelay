@@ -1,5 +1,5 @@
 import { Config } from './configurations';
-import { MemoryStore } from './store';
+import { MemoryStore, RegistrationStore } from './store';
 import { DockerWatcher } from './watchers';
 import { ConsoleLogger } from './logging';
 import { TlsProxy } from './proxies/TlsProxy';
@@ -15,19 +15,20 @@ const config = new Config();
 
 // Initialize PBX Records store
 const records = new MemoryStore();
+const registrationStore = new RegistrationStore();
 
 // Initialize Docker Watcher to dynamically update PBX records
 const dockerWatcher = new DockerWatcher(records, logger);
 dockerWatcher.watch();
 
 // Initialize Proxies
-const udpProxy = new UdpProxy(records, config, logger);
+const udpProxy = new UdpProxy(records, config, logger, registrationStore);
 udpProxy.start();
 
 // Check if TLS key and cert files exist, if so, start the TLS proxy
 if (fs.existsSync(config.SIP_TLS_KEY_PATH) && fs.existsSync(config.SIP_TLS_CERT_PATH)) {
   logger.info('TLS key and certificate found. Starting TLS proxy...');
-  const tlsProxy = new TlsProxy(records, config, logger);
+  const tlsProxy = new TlsProxy(records, config, logger, registrationStore);
   tlsProxy.start();
 } else {
   logger.info('TLS key and certificate not found. Skipping TLS proxy.');

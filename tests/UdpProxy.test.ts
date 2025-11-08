@@ -1,7 +1,7 @@
 import type { RemoteInfo } from 'dgram';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { UdpProxy } from '../src/proxies/UdpProxy';
-import { MemoryStore } from '../src/store';
+import { MemoryStore, RegistrationStore } from '../src/store';
 import { createTestConfig, createTestLogger } from './utils';
 import type { Config } from '../src/configurations';
 import type { Logger } from '../src/logging/Logger';
@@ -57,13 +57,15 @@ describe('UdpProxy', () => {
   let records: MemoryStore;
   let config: Config;
   let logger: Logger;
+  let registrationStore: RegistrationStore;
 
   beforeEach(() => {
     socket = new FakeUdpSocket();
     records = new MemoryStore();
+    registrationStore = new RegistrationStore();
     logger = createTestLogger();
     config = createTestConfig({ SIP_UDP_PORT: 15060, PROXY_IP: '203.0.113.5' });
-    proxy = new UdpProxy(records, config, logger, socket as unknown as any);
+    proxy = new UdpProxy(records, config, logger, registrationStore, socket as unknown as any);
     proxy.start();
   });
 

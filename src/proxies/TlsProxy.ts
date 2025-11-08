@@ -4,7 +4,7 @@ import tls from 'tls';
 import { once } from 'events';
 import { Config } from '../configurations';
 import { BaseProxy } from './BaseProxy';
-import { IPValue, IRecordStore } from './../store';
+import { IPValue, IRecordStore, RegistrationStore } from './../store';
 import { Logger } from '../logging/Logger';
 import { SipMessage } from '../sip';
 
@@ -32,9 +32,10 @@ export class TlsProxy extends BaseProxy {
     records: IRecordStore,
     config: Config,
     logger: Logger,
+    registrationStore: RegistrationStore,
     overrides: TlsProxyOverrides = {}
   ) {
-    super(records, logger);
+    super(records, logger, registrationStore);
     this.config = config;
     this.tlsConnectFn = overrides.tlsConnect ?? tls.connect;
     this.tlsOptions = overrides.tlsOptions ?? this.loadCredentials();

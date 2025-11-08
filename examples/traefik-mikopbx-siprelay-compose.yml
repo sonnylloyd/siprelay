@@ -1,0 +1,172 @@
+services:
+  traefik:
+    image: traefik:v2.11
+    container_name: traefik
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=traefik"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      - "--api.dashboard=true"
+      - "--log.level=DEBUG"
+      - "--providers.file.filename=/etc/traefik/traefik-tls.yml"
+      - "--tracing=true"
+      - "--tracing.jaeger=true"
+      - "--tracing.jaeger.localagenthostport=jaeger:6831"
+      - "--tracing.jaeger.samplingServerURL=http://jaeger:5778/sampling"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ../certs:/certs:ro
+      - ./traefik-tls.yml:/etc/traefik/traefik-tls.yml:ro
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.dashboard.rule=Host(`traefik.test.local`)"
+      - "traefik.http.routers.dashboard.entrypoints=websecure"
+      - "traefik.http.routers.dashboard.tls=true"
+      - "traefik.http.routers.dashboard.service=api@internal"
+    networks:
+      - traefik
+    restart: unless-stopped
+
+  siprelay:
+    image: echrom/siprelay:latest
+    container_name: siprelay
+    ports:
+      - "5060:5060/udp"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - sipcore
+    restart: unless-stopped
+
+  mikopbx-alpha:
+    image: ghcr.io/mikopbx/mikopbx-x86-64:latest
+    container_name: mikopbx-alpha
+    depends_on:
+      - siprelay
+    entrypoint: "/sbin/docker-entrypoint"
+    hostname: "pbx1.test.local"
+    tty: true
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - ID_WWW_USER=${ID_WWW_USER:-1000}
+      - ID_WWW_GROUP=${ID_WWW_GROUP:-1000}
+      - PBX_NAME=MikoPBXAlpha
+      - WEB_PORT=80
+      - WEB_HTTPS_PORT=443
+      - SIP_PORT=5060
+      - TLS_PORT=5061
+      - RTP_PORT_FROM=10000
+      - RTP_PORT_TO=10800
+      - WEB_ADMIN_LOGIN=admin
+      - WEB_ADMIN_PASSWORD=${PBX1_ADMIN_PASSWORD:-mikopbx-alpha-password}
+      - PBX_FIREWALL_ENABLED=0
+      - PBX_FAIL2BAN_ENABLED=0
+      - ENABLE_USE_NAT=1
+    volumes:
+      - pbx1_cf:/cf
+      - pbx1_storage:/storage
+    expose:
+      - "80"
+      - "443"
+      - "5060/udp"
+      - "5061/tcp"
+    networks:
+      traefik:
+        aliases:
+          - pbx1.test.local
+      sipcore:
+        aliases:
+          - pbx1.test.local
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.pbx1.rule=Host(`pbx1.test.local`)"
+      - "traefik.http.routers.pbx1.entrypoints=websecure"
+      - "traefik.http.routers.pbx1.tls=true"
+      - "traefik.http.services.pbx1.loadbalancer.server.port=80"
+      - "sip-proxy-host=pbx1.test.local"
+      - "sip-proxy-port-udp=5060"
+      - "sip-proxy-port-tls=5061"
+    restart: unless-stopped
+
+  mikopbx-bravo:
+    image: ghcr.io/mikopbx/mikopbx-x86-64:latest
+    container_name: mikopbx-bravo
+    depends_on:
+      - siprelay
+    entrypoint: "/sbin/docker-entrypoint"
+    hostname: "pbx2.test.local"
+    tty: true
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - ID_WWW_USER=${ID_WWW_USER:-1000}
+      - ID_WWW_GROUP=${ID_WWW_GROUP:-1000}
+      - PBX_NAME=MikoPBXBravo
+      - WEB_PORT=80
+      - WEB_HTTPS_PORT=443
+      - SIP_PORT=5060
+      - TLS_PORT=5061
+      - RTP_PORT_FROM=20000
+      - RTP_PORT_TO=20800
+      - EXTERNAL_SIP_PORT=6060
+      - WEB_ADMIN_LOGIN=admin
+      - WEB_ADMIN_PASSWORD=${PBX2_ADMIN_PASSWORD:-mikopbx-bravo-password}
+      - PBX_FIREWALL_ENABLED=0
+      - PBX_FAIL2BAN_ENABLED=0
+      - ENABLE_USE_NAT=1
+    volumes:
+      - pbx2_cf:/cf
+      - pbx2_storage:/storage
+    expose:
+      - "80"
+      - "443"
+      - "5060/udp"
+      - "5061/tcp"
+    networks:
+      traefik:
+        aliases:
+          - pbx2.test.local
+      sipcore:
+        aliases:
+          - pbx2.test.local
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.pbx2.rule=Host(`pbx2.test.local`)"
+      - "traefik.http.routers.pbx2.entrypoints=websecure"
+      - "traefik.http.routers.pbx2.tls=true"
+      - "traefik.http.services.pbx2.loadbalancer.server.port=80"
+      - "sip-proxy-host=pbx2.test.local"
+      - "sip-proxy-port-udp=5060"
+      - "sip-proxy-port-tls=5061"
+    restart: unless-stopped
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    container_name: jaeger
+    ports:
+      - "16686:16686"
+    networks:
+      - traefik
+    restart: unless-stopped
+
+networks:
+  traefik:
+    name: traefik
+    driver: bridge
+  sipcore:
+    name: sipcore
+    driver: bridge
+
+volumes:
+  pbx1_cf:
+  pbx1_storage:
+  pbx2_cf:
+  pbx2_storage:

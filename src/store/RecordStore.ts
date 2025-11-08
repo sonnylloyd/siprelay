@@ -11,4 +11,5 @@ export interface IRecordStore {
     getAllRecords(): Record<string, IPValue>;
     deleteRecord(hostname: string): boolean;
     updateRecord(hostname: string, ip: IPValue): IPValue | undefined;
+    findHostnameByIp(ip: string): string | undefined;
 }

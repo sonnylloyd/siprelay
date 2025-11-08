@@ -36,6 +36,12 @@ export class SipMessage {
     return SipMessage.isResponseLine(this.startLine);
   }
 
+  public getMethod(): string | undefined {
+    if (this.isResponse()) return undefined;
+    const [method] = this.startLine.split(' ');
+    return method?.toUpperCase();
+  }
+
   public getHeader(name: string): string[] {
     return this.headers.get(name) || [];
   }
@@ -74,6 +80,29 @@ export class SipMessage {
     const requestLine = this.startLine;
     const match = requestLine.match(/^([A-Z]+)\s+sip:([^@]+@)?([^;>\s]+)/i);
     return match ? match[3] : null;
+  }
+
+  public getTargetUser(): string | null {
+    if (this.isResponse()) return null;
+    const requestLine = this.startLine;
+    const match = requestLine.match(/^[A-Z]+\s+sip:([^@;>\s]+)@/i);
+    return match ? match[1] : null;
+  }
+
+  private parseSipUri(value: string): { user?: string; host?: string } | null {
+    const match = value.match(/sip:([^@;>\s]+)@([^;>\s]+)/i);
+    if (!match) return null;
+    return { user: match[1], host: match[2] };
+  }
+
+  public getAddressOfRecord(): { user?: string; host?: string } | null {
+    const toHeader = this.getFirstHeader('To');
+    if (!toHeader) return null;
+    return this.parseSipUri(toHeader);
+  }
+
+  public getContactHeaders(): string[] {
+    return this.getHeader('Contact');
   }
 
   public getTopVia(): string | undefined {
