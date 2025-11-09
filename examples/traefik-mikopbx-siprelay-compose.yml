@@ -41,8 +41,11 @@ services:
       - "5060:5060/udp"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - PROXY_IP=172.23.0.2
     networks:
-      - sipcore
+      sipcore:
+        ipv4_address: 172.23.0.2
     restart: unless-stopped
 
   mikopbx-alpha:
@@ -64,7 +67,7 @@ services:
       - SIP_PORT=5060
       - TLS_PORT=5061
       - RTP_PORT_FROM=10000
-      - RTP_PORT_TO=10800
+      - RTP_PORT_TO=10040
       - WEB_ADMIN_LOGIN=admin
       - WEB_ADMIN_PASSWORD=${PBX1_ADMIN_PASSWORD:-mikopbx-alpha-password}
       - PBX_FIREWALL_ENABLED=0
@@ -78,6 +81,8 @@ services:
       - "443"
       - "5060/udp"
       - "5061/tcp"
+    ports:
+      - "10000-10040:10000-10040/udp"
     networks:
       traefik:
         aliases:
@@ -85,6 +90,7 @@ services:
       sipcore:
         aliases:
           - pbx1.test.local
+        ipv4_address: 172.23.0.4
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.pbx1.rule=Host(`pbx1.test.local`)"
@@ -115,7 +121,7 @@ services:
       - SIP_PORT=5060
       - TLS_PORT=5061
       - RTP_PORT_FROM=20000
-      - RTP_PORT_TO=20800
+      - RTP_PORT_TO=20040
       - EXTERNAL_SIP_PORT=6060
       - WEB_ADMIN_LOGIN=admin
       - WEB_ADMIN_PASSWORD=${PBX2_ADMIN_PASSWORD:-mikopbx-bravo-password}
@@ -130,6 +136,8 @@ services:
       - "443"
       - "5060/udp"
       - "5061/tcp"
+    ports:
+      - "20000-20040:20000-20040/udp"
     networks:
       traefik:
         aliases:
@@ -137,6 +145,7 @@ services:
       sipcore:
         aliases:
           - pbx2.test.local
+        ipv4_address: 172.23.0.5
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.pbx2.rule=Host(`pbx2.test.local`)"
@@ -164,6 +173,9 @@ networks:
   sipcore:
     name: sipcore
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.23.0.0/24
 
 volumes:
   pbx1_cf:
