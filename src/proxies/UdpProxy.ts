@@ -17,7 +17,9 @@ export class UdpProxy extends BaseProxy {
     registrationStore: RegistrationStore,
     socket?: dgram.Socket
   ) {
-    super(records, logger, registrationStore);
+    super(records, logger, registrationStore, {
+      mediaPassthrough: config.MEDIA_MODE === 'passthrough',
+    });
     this.config = config;
     this.udpSocket = socket ?? dgram.createSocket('udp4');
   }

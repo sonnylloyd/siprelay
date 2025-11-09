@@ -22,13 +22,20 @@ export abstract class BaseProxy implements Proxy {
   protected logger: Logger;
   protected clientMap: Map<string, ClientInfo>;
   protected registrationStore: RegistrationStore;
+  private mediaPassthrough: boolean;
   private CLIENT_TIMEOUT_MS = 30000; // 30 seconds timeout
 
-  constructor(records: IRecordStore, logger: Logger, registrationStore: RegistrationStore) {
+  constructor(
+    records: IRecordStore,
+    logger: Logger,
+    registrationStore: RegistrationStore,
+    options: { mediaPassthrough?: boolean } = {}
+  ) {
     this.records = records;
     this.logger = logger;
     this.clientMap = new Map();
     this.registrationStore = registrationStore;
+    this.mediaPassthrough = options.mediaPassthrough ?? false;
   }
 
   protected getTargetRecord(destinationHost: string): IPValue | null {
@@ -102,7 +109,9 @@ export abstract class BaseProxy implements Proxy {
     const viaHeader = this.buildProxyViaHeader(transport, proxyIp, proxyPort, branch);
     sipMessage.addViaTop(viaHeader);
     sipMessage.updateContact(proxyIp, proxyPort);
-    sipMessage.updateSdpIp(proxyIp);
+    if (!this.mediaPassthrough) {
+      sipMessage.updateSdpIp(proxyIp);
+    }
     return branch;
   }
 
@@ -114,7 +123,9 @@ export abstract class BaseProxy implements Proxy {
   ): void {
     const viaHeader = this.buildClientViaHeader(transport, clientInfo);
     sipMessage.replaceViaTop(viaHeader);
-    sipMessage.updateSdpIp(proxyIp);
+    if (!this.mediaPassthrough) {
+      sipMessage.updateSdpIp(proxyIp);
+    }
   }
 
   private buildProxyViaHeader(

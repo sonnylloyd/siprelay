@@ -35,7 +35,9 @@ export class TlsProxy extends BaseProxy {
     registrationStore: RegistrationStore,
     overrides: TlsProxyOverrides = {}
   ) {
-    super(records, logger, registrationStore);
+    super(records, logger, registrationStore, {
+      mediaPassthrough: config.MEDIA_MODE === 'passthrough',
+    });
     this.config = config;
     this.tlsConnectFn = overrides.tlsConnect ?? tls.connect;
     this.tlsOptions = overrides.tlsOptions ?? this.loadCredentials();

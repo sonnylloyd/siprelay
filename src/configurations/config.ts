@@ -11,4 +11,6 @@ export class Config {
   public readonly SIP_TLS_CERT_PATH: string = process.env.SIP_TLS_CERT_PATH || '/ssl/server.crt';
 
   public readonly PROXY_IP: string = process.env.PROXY_IP || '127.0.0.1';
+  public readonly MEDIA_MODE: 'proxy' | 'passthrough' =
+    (process.env.MEDIA_MODE as 'proxy' | 'passthrough') || 'passthrough';
 }

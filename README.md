@@ -143,6 +143,13 @@ To: <sip:bob@pbx-a.example.com>
 
 You can also observe debug logs from `sip-debug-server` containers to verify routing.
 
+## ⚙️ Environment Variables
+
+| Variable     | Default      | Description                                                                 |
+|--------------|--------------|-----------------------------------------------------------------------------|
+| `PROXY_IP`   | `127.0.0.1`  | IP/host the relay uses in Via/Contact headers. Set to the container IP exposed to clients. |
+| `MEDIA_MODE` | `passthrough` | `passthrough` leaves SDP untouched so RTP flows directly between endpoints. Set to `proxy` once the relay is configured to relay RTP. |
+
 ---
 
 ## 🔍 How Routing Works

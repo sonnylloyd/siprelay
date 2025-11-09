@@ -43,6 +43,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - PROXY_IP=172.23.0.2
+      - MEDIA_MODE=passthrough
     networks:
       sipcore:
         ipv4_address: 172.23.0.2
