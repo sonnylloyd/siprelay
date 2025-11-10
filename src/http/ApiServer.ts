@@ -28,6 +28,8 @@ export class ApiServer {
   private setupMiddleware(): void {
     this.app.use(cors()); // Enable CORS
     this.app.use(express.json()); // Enable JSON request parsing
+    const staticPath = path.join(__dirname, '..', 'images');
+    this.app.use('/static', express.static(staticPath));
   }
 
   private setupViewEngine(): void {

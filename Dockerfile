@@ -13,6 +13,7 @@ RUN npm install
 # Copy the full source code
 COPY tsconfig.json ./
 COPY scripts ./scripts
+COPY images ./images
 COPY src ./src
 
 # Compile TypeScript to JavaScript and copy static assets

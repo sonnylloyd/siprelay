@@ -39,6 +39,7 @@ services:
     container_name: siprelay
     ports:
       - "5060:5060/udp"
+      - "8080:8080/tcp"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
@@ -47,6 +48,15 @@ services:
     networks:
       sipcore:
         ipv4_address: 172.23.0.2
+      traefik:
+        aliases:
+          - siprelay.test.local
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.siprelay-dashboard.rule=Host(`siprelay.test.local`)"
+      - "traefik.http.routers.siprelay-dashboard.entrypoints=websecure"
+      - "traefik.http.routers.siprelay-dashboard.tls=true"
+      - "traefik.http.services.siprelay-dashboard.loadbalancer.server.port=8080"
     restart: unless-stopped
 
   mikopbx-alpha:
