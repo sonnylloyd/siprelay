@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SIP Relay Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-slate-950 text-slate-100">
+    <header class="border-b border-slate-800 bg-slate-900">
+      <div class="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
+        <div>
+          <p class="text-sm uppercase tracking-widest text-slate-400">Sip Relay</p>
+          <h1 class="text-2xl font-semibold text-white">Live Routing Dashboard</h1>
+        </div>
+        <span class="rounded-full bg-emerald-600/20 px-4 py-1 text-sm font-medium text-emerald-300">
+          Healthy
+        </span>
+      </div>
+    </header>
+
+    <main class="mx-auto max-w-5xl px-6 py-10 space-y-8">
+      <section class="grid gap-4 sm:grid-cols-2">
+        <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-900/50">
+          <p class="text-sm uppercase tracking-wide text-slate-400">Active Routes</p>
+          <p class="mt-2 text-4xl font-semibold text-white">{{ stats.totalRoutes }}</p>
+        </div>
+        <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-900/50">
+          <p class="text-sm uppercase tracking-wide text-slate-400">Last refresh</p>
+          <p class="mt-2 text-lg font-medium text-white">{{ stats.generatedAt }}</p>
+        </div>
+      </section>
+
+      <section class="rounded-2xl border border-slate-800 bg-slate-900/40 p-6 shadow-lg shadow-slate-900/40">
+        <div class="flex items-center justify-between pb-4">
+          <div>
+            <p class="text-sm uppercase tracking-widest text-slate-400">Routes</p>
+            <h2 class="text-xl font-semibold text-white">Discovered Targets</h2>
+          </div>
+          <span class="text-sm text-slate-400">{{ routes | length }} domains</span>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="min-w-full divide-y divide-slate-800 text-left text-sm text-slate-300">
+            <thead class="text-xs uppercase tracking-wider text-slate-400">
+              <tr>
+                <th scope="col" class="px-4 py-3">Host</th>
+                <th scope="col" class="px-4 py-3">Container IP</th>
+                <th scope="col" class="px-4 py-3">UDP Port</th>
+                <th scope="col" class="px-4 py-3">TLS Port</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-800">
+              {% if routes | length == 0 %}
+              <tr>
+                <td colspan="4" class="px-4 py-6 text-center text-slate-500">
+                  No routes registered yet. Start a PBX container with the sip-proxy labels to see it here.
+                </td>
+              </tr>
+              {% endif %}
+              {% for route in routes %}
+              <tr class="hover:bg-slate-800/40">
+                <td class="px-4 py-3 font-medium text-white">{{ route.host }}</td>
+                <td class="px-4 py-3">{{ route.ip }}</td>
+                <td class="px-4 py-3">{{ route.udpPort }}</td>
+                <td class="px-4 py-3">{{ route.tlsPort }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

@@ -14,8 +14,8 @@ RUN npm install
 COPY tsconfig.json ./
 COPY src ./src
 
-# Compile TypeScript to JavaScript
-RUN npx tsc
+# Compile TypeScript to JavaScript and copy static assets
+RUN npm run build
 
 # ----------------------
 # 2️⃣ RUN STAGE
