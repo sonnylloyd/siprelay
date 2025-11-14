@@ -39,15 +39,16 @@ services:
     container_name: siprelay
     ports:
       - "5060:5060/udp"
-      - "8080:8080/tcp"
+    expose:
+      - "8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
-      - PROXY_IP=172.23.0.2
+      - PROXY_IP=${SIPRELAY_IP:-172.30.0.2}
       - MEDIA_MODE=passthrough
     networks:
       sipcore:
-        ipv4_address: 172.23.0.2
+        ipv4_address: ${SIPRELAY_IP:-172.30.0.2}
       traefik:
         aliases:
           - siprelay.test.local
@@ -92,6 +93,7 @@ services:
       - "443"
       - "5060/udp"
       - "5061/tcp"
+      - "8088/tcp"
       - "8089/tcp"
     ports:
       - "10000-10040:10000-10040/udp"
@@ -102,19 +104,19 @@ services:
       sipcore:
         aliases:
           - pbx1.test.local
-        ipv4_address: 172.23.0.4
+        ipv4_address: ${PBX1_IP:-172.30.0.4}
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.pbx1.rule=Host(`pbx1.test.local`)"
       - "traefik.http.routers.pbx1.entrypoints=websecure"
       - "traefik.http.routers.pbx1.tls=true"
+      - "traefik.http.routers.pbx1.service=pbx1"
       - "traefik.http.services.pbx1.loadbalancer.server.port=80"
       - "traefik.http.routers.pbx1-ws.rule=Host(`pbx1.test.local`) && PathPrefix(`/asterisk/ws`)"
       - "traefik.http.routers.pbx1-ws.entrypoints=websecure"
       - "traefik.http.routers.pbx1-ws.tls=true"
       - "traefik.http.routers.pbx1-ws.service=pbx1-ws"
-      - "traefik.http.services.pbx1-ws.loadbalancer.server.port=8089"
-      - "traefik.http.services.pbx1-ws.loadbalancer.server.scheme=https"
+      - "traefik.http.services.pbx1-ws.loadbalancer.server.port=8088"
       - "sip-proxy-host=pbx1.test.local"
       - "sip-proxy-port-udp=5060"
       - "sip-proxy-port-tls=5061"
@@ -154,6 +156,7 @@ services:
       - "443"
       - "5060/udp"
       - "5061/tcp"
+      - "8088/tcp"
       - "8089/tcp"
     ports:
       - "20000-20040:20000-20040/udp"
@@ -164,19 +167,19 @@ services:
       sipcore:
         aliases:
           - pbx2.test.local
-        ipv4_address: 172.23.0.5
+        ipv4_address: ${PBX2_IP:-172.30.0.5}
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.pbx2.rule=Host(`pbx2.test.local`)"
       - "traefik.http.routers.pbx2.entrypoints=websecure"
       - "traefik.http.routers.pbx2.tls=true"
+      - "traefik.http.routers.pbx2.service=pbx2"
       - "traefik.http.services.pbx2.loadbalancer.server.port=80"
       - "traefik.http.routers.pbx2-ws.rule=Host(`pbx2.test.local`) && PathPrefix(`/asterisk/ws`)"
       - "traefik.http.routers.pbx2-ws.entrypoints=websecure"
       - "traefik.http.routers.pbx2-ws.tls=true"
       - "traefik.http.routers.pbx2-ws.service=pbx2-ws"
-      - "traefik.http.services.pbx2-ws.loadbalancer.server.port=8089"
-      - "traefik.http.services.pbx2-ws.loadbalancer.server.scheme=https"
+      - "traefik.http.services.pbx2-ws.loadbalancer.server.port=8088"
       - "sip-proxy-host=pbx2.test.local"
       - "sip-proxy-port-udp=5060"
       - "sip-proxy-port-tls=5061"
@@ -200,7 +203,7 @@ networks:
     driver: bridge
     ipam:
       config:
-        - subnet: 172.23.0.0/24
+        - subnet: ${SIPCORE_SUBNET:-172.30.0.0/24}
 
 volumes:
   pbx1_cf:
