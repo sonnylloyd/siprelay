@@ -66,7 +66,7 @@ services:
       - "443:443"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ../certs:/certs:ro
+      - traefik-certs:/certs:ro      # contains acme.json
       - ./traefik-tls.yml:/etc/traefik/traefik-tls.yml:ro
     networks: [traefik]
 
@@ -77,12 +77,15 @@ services:
     environment:
       PROXY_IP: ${SIPRELAY_IP:-172.30.0.2}
       MEDIA_MODE: passthrough
+      SIP_TLS_KEY_PATH: /ssl/server.key
+      SIP_TLS_CERT_PATH: /ssl/server.crt
     ports:
       - "5060:5060/udp"
     expose:
       - "8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - siprelay-certs:/ssl:ro       # populated by certs-dumper
     networks:
       sipcore:
         ipv4_address: ${SIPRELAY_IP:-172.30.0.2}
@@ -117,6 +120,25 @@ services:
       - "sip-proxy-port-udp=5060"
       - "sip-proxy-port-tls=5061"
 
+  certs-dumper:
+    image: ghcr.io/kereis/traefik-certs-dumper:latest
+    command:
+      - --restart-containers=siprelay
+    environment:
+      - ACME_FILE_PATH=/certs/acme.json
+      - DOMAIN=siprelay.test.local
+      - PRIVATE_KEY_FILE_NAME=server
+      - PRIVATE_KEY_FILE_EXT=.key
+      - CERTIFICATE_FILE_NAME=server
+      - CERTIFICATE_FILE_EXT=.crt
+      - COMBINED_PEM=ca.crt
+    volumes:
+      - traefik-certs:/certs:ro      # same volume Traefik writes acme.json into
+      - siprelay-certs:/output:rw    # where TLS cert/key are dumped
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [traefik]
+    restart: unless-stopped
+
 networks:
   traefik:
     driver: bridge
@@ -125,6 +147,10 @@ networks:
     ipam:
       config:
         - subnet: ${SIPCORE_SUBNET:-172.30.0.0/24}
+
+volumes:
+  traefik-certs:
+  siprelay-certs:
 ```
 
 Start everything:
