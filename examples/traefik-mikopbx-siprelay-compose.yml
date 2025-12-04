@@ -1,6 +1,8 @@
 services:
   traefik:
     image: traefik:v2.11
+    env_file:
+      - .env
     container_name: traefik
     command:
       - "--providers.docker=true"
@@ -13,10 +15,6 @@ services:
       - "--api.dashboard=true"
       - "--log.level=DEBUG"
       - "--providers.file.filename=/etc/traefik/traefik-tls.yml"
-      - "--tracing=true"
-      - "--tracing.jaeger=true"
-      - "--tracing.jaeger.localagenthostport=jaeger:6831"
-      - "--tracing.jaeger.samplingServerURL=http://jaeger:5778/sampling"
     ports:
       - "80:80"
       - "443:443"
@@ -36,6 +34,8 @@ services:
 
   siprelay:
     image: echrom/siprelay:latest
+    env_file:
+      - .env
     container_name: siprelay
     ports:
       - "5060:5060/udp"
@@ -58,10 +58,14 @@ services:
       - "traefik.http.routers.siprelay-dashboard.entrypoints=websecure"
       - "traefik.http.routers.siprelay-dashboard.tls=true"
       - "traefik.http.services.siprelay-dashboard.loadbalancer.server.port=8080"
+      - "traefik.http.routers.siprelay-dashboard.middlewares=siprelay-basic-auth"
+      - "traefik.http.middlewares.siprelay-basic-auth.basicauth.users=${SIPRELAY_DASHBOARD_AUTH}"
     restart: unless-stopped
 
   mikopbx-alpha:
     image: ghcr.io/mikopbx/mikopbx-x86-64:latest
+    env_file:
+      - .env
     container_name: mikopbx-alpha
     depends_on:
       - siprelay
@@ -124,6 +128,8 @@ services:
 
   mikopbx-bravo:
     image: ghcr.io/mikopbx/mikopbx-x86-64:latest
+    env_file:
+      - .env
     container_name: mikopbx-bravo
     depends_on:
       - siprelay
@@ -183,15 +189,6 @@ services:
       - "sip-proxy-host=pbx2.test.local"
       - "sip-proxy-port-udp=5060"
       - "sip-proxy-port-tls=5061"
-    restart: unless-stopped
-
-  jaeger:
-    image: jaegertracing/all-in-one:1.57
-    container_name: jaeger
-    ports:
-      - "16686:16686"
-    networks:
-      - traefik
     restart: unless-stopped
 
 networks:

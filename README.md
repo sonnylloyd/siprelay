@@ -21,65 +21,120 @@
 3. Extracts the target domain from the SIP message, looks it up in the routing table, and rewrites Via/Contact headers to use `PROXY_IP`.
 4. Forwards the message to the matching container IP/port. Responses are mapped back to the original client by Call-ID.
 
-## Quick start (Docker Compose)
-The relay must see Docker events, so mount the Docker socket. Set `PROXY_IP` to the address clients use to reach the proxy (e.g., the servers IP address).
+## Quick start (Docker Compose with Traefik + basic auth)
+Create a `.env` from the sample in `examples/` and update the credentials and IPs for your lab:
+
+```bash
+cp examples/.env.example examples/.env
+# then edit SIPRELAY_DASHBOARD_AUTH with your own htpasswd hash
+```
+
+Example `.env` values for the compose below:
+```env
+SIPRELAY_IP=172.30.0.2
+SIPCORE_SUBNET=172.30.0.0/24
+PBX1_IP=172.30.0.4
+PBX2_IP=172.30.0.5
+PBX1_ADMIN_PASSWORD=changeme-alpha
+PBX2_ADMIN_PASSWORD=changeme-bravo
+# Generate with: htpasswd -nb admin 'yourpass'
+SIPRELAY_DASHBOARD_AUTH=admin:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/
+```
+
+The relay must see Docker events, so mount the Docker socket. Set `PROXY_IP` to the address clients use to reach the proxy. Below is a shortened version of `examples/traefik-mikopbx-siprelay-compose.yml` (Jaeger removed) with Traefik fronting the SIP Relay dashboard via basic auth.
 
 ```yaml
 version: '3.9'
 
 services:
-  siprelay:
-    build: .
-    container_name: siprelay
-    environment:
-      PROXY_IP: 172.20.0.2
-      MEDIA_MODE: passthrough   # current supported mode (RTP passthrough)
+  traefik:
+    image: traefik:v2.11
+    env_file:
+      - .env
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=traefik"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      - "--api.dashboard=true"
+      - "--providers.file.filename=/etc/traefik/traefik-tls.yml"
     ports:
-      - "5060:5060/udp"
-      - "5061:5061/tcp"
-      - "8080:8080/tcp"
+      - "80:80"
+      - "443:443"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      # TLS is optional — mount your key/cert to enable it
-      # - ./certs/server.key:/ssl/server.key:ro
-      # - ./certs/server.crt:/ssl/server.crt:ro
-    networks:
-      sipnet:
-        ipv4_address: 172.20.0.2
+      - ../certs:/certs:ro
+      - ./traefik-tls.yml:/etc/traefik/traefik-tls.yml:ro
+    networks: [traefik]
 
-  sip-debug-a:
-    image: echrom/sip-debug-server
-    labels:
-      sip-proxy-host: pbx-a.example.com
-      sip-proxy-port-udp: 5070
+  siprelay:
+    image: echrom/siprelay:latest
+    env_file:
+      - .env
+    environment:
+      PROXY_IP: ${SIPRELAY_IP:-172.30.0.2}
+      MEDIA_MODE: passthrough
+    ports:
+      - "5060:5060/udp"
+    expose:
+      - "8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
-      sipnet:
-        ipv4_address: 172.20.0.10
+      sipcore:
+        ipv4_address: ${SIPRELAY_IP:-172.30.0.2}
+      traefik:
+        aliases: [siprelay.test.local]
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.siprelay-dashboard.rule=Host(`siprelay.test.local`)"
+      - "traefik.http.routers.siprelay-dashboard.entrypoints=websecure"
+      - "traefik.http.routers.siprelay-dashboard.tls=true"
+      - "traefik.http.routers.siprelay-dashboard.middlewares=siprelay-basic-auth"
+      - "traefik.http.middlewares.siprelay-basic-auth.basicauth.users=${SIPRELAY_DASHBOARD_AUTH}"
+      - "traefik.http.services.siprelay-dashboard.loadbalancer.server.port=8080"
 
-  sip-debug-b:
-    image: echrom/sip-debug-server
-    labels:
-      sip-proxy-host: pbx-b.example.com
-      sip-proxy-port-udp: 5071
-      sip-proxy-port-tls: 5061    # advertise a TLS listener if present
+  mikopbx-alpha:
+    image: ghcr.io/mikopbx/mikopbx-x86-64:latest
+    env_file:
+      - .env
+    hostname: "pbx1.test.local"
     networks:
-      sipnet:
-        ipv4_address: 172.20.0.11
+      sipcore:
+        ipv4_address: ${PBX1_IP:-172.30.0.4}
+      traefik:
+        aliases: [pbx1.test.local]
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.pbx1.rule=Host(`pbx1.test.local`)"
+      - "traefik.http.routers.pbx1.entrypoints=websecure"
+      - "traefik.http.routers.pbx1.tls=true"
+      - "traefik.http.services.pbx1.loadbalancer.server.port=80"
+      - "sip-proxy-host=pbx1.test.local"
+      - "sip-proxy-port-udp=5060"
+      - "sip-proxy-port-tls=5061"
 
 networks:
-  sipnet:
+  traefik:
+    driver: bridge
+  sipcore:
     driver: bridge
     ipam:
       config:
-        - subnet: 172.20.0.0/24
+        - subnet: ${SIPCORE_SUBNET:-172.30.0.0/24}
 ```
 
 Start everything:
 ```bash
-docker compose up -d --build
+docker compose --env-file examples/.env -f examples/traefik-mikopbx-siprelay-compose.yml up -d
 ```
 
-Browse the dashboard at `http://localhost:8080/` or view JSON routes at `http://localhost:8080/api/routes`.
+Browse the SIP Relay dashboard at `https://siprelay.test.local` using the credentials from `.env`. The full two-PBX example lives at `examples/traefik-mikopbx-siprelay-compose.yml`.
+
+To change the dashboard credentials, generate a new hash (e.g. `htpasswd -nb admin 'yourpass'`) and update `SIPRELAY_DASHBOARD_AUTH` in `.env`.
 
 ## Container labels
 
