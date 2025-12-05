@@ -21,6 +21,10 @@
 3. Extracts the target domain from the SIP message, looks it up in the routing table, and rewrites Via/Contact headers to use `PROXY_IP`.
 4. Forwards the message to the matching container IP/port. Responses are mapped back to the original client by Call-ID.
 
+### Passthrough data flow (current mode)
+
+![SIP Relay passthrough diagram](images/siprelay-passthrough.png)
+
 ## Quick start (Docker Compose with Traefik + basic auth)
 Create a `.env` from the sample in `examples/` and update the credentials and IPs for your lab:
 
