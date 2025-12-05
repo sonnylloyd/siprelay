@@ -210,7 +210,7 @@ export class TlsProxy extends BaseProxy {
       const client = this.tlsConnectFn({
         host: record.ip,
         port: record.tlsPort,
-        rejectUnauthorized: false,
+        rejectUnauthorized: this.config.SIP_TLS_REJECT_UNAUTHORIZED,
       });
 
       const handleSecureConnect = () =>

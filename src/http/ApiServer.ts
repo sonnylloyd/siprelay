@@ -6,16 +6,17 @@ import { Logger } from '../logging/Logger';
 import { IRecordStore } from '../store';
 import { DashboardController } from './controllers';
 import { createApiRoutes } from './routes';
+import { Config } from '../configurations';
 
 export class ApiServer {
   private app = express();
-  private port: number;
+  private config: Config;
   private logger: Logger;
   private records: IRecordStore;
   private dashboardController: DashboardController;
 
-  constructor(port: number, logger: Logger, records: IRecordStore) {
-    this.port = port;
+  constructor(config: Config, logger: Logger, records: IRecordStore) {
+    this.config = config;
     this.logger = logger;
     this.records = records;
     this.dashboardController = new DashboardController(records);
@@ -26,7 +27,13 @@ export class ApiServer {
   }
 
   private setupMiddleware(): void {
-    this.app.use(cors()); // Enable CORS
+    if (this.config.HTTP_CORS_ORIGINS.length > 0) {
+      this.app.use(
+        cors({
+          origin: this.config.HTTP_CORS_ORIGINS,
+        })
+      );
+    }
     this.app.use(express.json()); // Enable JSON request parsing
     const staticPath = path.join(__dirname, '..', 'images');
     this.app.use('/static', express.static(staticPath));
@@ -49,8 +56,8 @@ export class ApiServer {
   }
 
   public start(): void {
-    this.app.listen(this.port, () => {
-      this.logger.info(`API Server running on port ${this.port} 🖥️`);
+    this.app.listen(this.config.HTTP_PORT, () => {
+      this.logger.info(`API Server running on port ${this.config.HTTP_PORT} 🖥️`);
     });
   }
 }

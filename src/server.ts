@@ -35,7 +35,7 @@ if (fs.existsSync(config.SIP_TLS_KEY_PATH) && fs.existsSync(config.SIP_TLS_CERT_
 }
 
 // Start the API server
-const apiServer = new ApiServer(config.HTTP_PORT, logger, records);
+const apiServer = new ApiServer(config, logger, records);
 apiServer.start();
 
 // Graceful shutdown handling

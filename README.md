@@ -181,6 +181,8 @@ To change the dashboard credentials, generate a new hash (e.g. `htpasswd -nb adm
 | `HTTP_PORT`         | `8080`           | HTTP dashboard and API port.                                                |
 | `SIP_TLS_KEY_PATH`  | `/ssl/server.key`| TLS private key path inside the container.                                  |
 | `SIP_TLS_CERT_PATH` | `/ssl/server.crt`| TLS certificate path inside the container.                                  |
+| `SIP_TLS_REJECT_UNAUTHORIZED` | `1`  | Set to `0` to skip upstream TLS cert verification (not recommended outside labs). |
+| `HTTP_CORS_ORIGINS` | _empty_          | Comma-separated origins to allow via CORS. Leave empty to disable CORS.     |
 | `MEDIA_MODE`        | `passthrough`    | Current supported mode; keeps SDP as-is so RTP flows end-to-end.            |
 
 ## HTTP Endpoints
