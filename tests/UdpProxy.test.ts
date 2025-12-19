@@ -38,10 +38,10 @@ const createSipRequest = (host: string, callId = 'abc123'): string =>
     '',
   ].join('\r\n');
 
-const createSipResponse = (statusLine: string, callId = 'abc123'): string =>
+const createSipResponse = (statusLine: string, viaBranch: string, callId = 'abc123'): string =>
   [
     statusLine,
-    'Via: SIP/2.0/UDP 203.0.113.5:15060;branch=z9hG4bK-proxy',
+    `Via: SIP/2.0/UDP 203.0.113.5:15060;branch=${viaBranch}`,
     'From: <sip:alice@example.com>;tag=abc',
     'To: <sip:bob@example.com>;tag=xyz',
     `Call-ID: ${callId}`,
@@ -93,7 +93,11 @@ describe('UdpProxy', () => {
     socket.emit('message', Buffer.from(request), clientInfo);
     (socket.send as any).mockClear();
 
-    const response = createSipResponse('SIP/2.0 200 OK');
+    const storedClient = (proxy as any).clientMap.get('abc123');
+    const proxyBranch = storedClient?.proxyBranch as string;
+    expect(proxyBranch).toBeTruthy();
+
+    const response = createSipResponse('SIP/2.0 200 OK', proxyBranch);
     const pbxInfo: RemoteInfo = { address: '10.0.0.50', port: 5090, family: 'IPv4', size: response.length };
     socket.emit('message', Buffer.from(response), pbxInfo);
 

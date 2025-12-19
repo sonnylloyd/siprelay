@@ -1,7 +1,11 @@
+export const SipFrameDecoderErrorCode = {
+  BUFFER_OVERFLOW: 'BUFFER_OVERFLOW',
+  INVALID_CONTENT_LENGTH: 'INVALID_CONTENT_LENGTH',
+  MESSAGE_TOO_LARGE: 'MESSAGE_TOO_LARGE',
+} as const;
+
 export type SipFrameDecoderErrorCode =
-  | 'BUFFER_OVERFLOW'
-  | 'INVALID_CONTENT_LENGTH'
-  | 'MESSAGE_TOO_LARGE';
+  (typeof SipFrameDecoderErrorCode)[keyof typeof SipFrameDecoderErrorCode];
 
 export class SipFrameDecoderError extends Error {
   public readonly code: SipFrameDecoderErrorCode;
@@ -27,7 +31,7 @@ export class SipFrameDecoder {
 
     if (this.buffer.length > this.maxBufferBytes) {
       throw new SipFrameDecoderError(
-        'BUFFER_OVERFLOW',
+        SipFrameDecoderErrorCode.BUFFER_OVERFLOW,
         `Buffered data exceeded ${this.maxBufferBytes} bytes`
       );
     }
@@ -41,11 +45,14 @@ export class SipFrameDecoder {
       const headers = this.buffer.slice(0, headerEnd);
       const contentLength = this.parseContentLength(headers);
       if (contentLength === null) {
-        throw new SipFrameDecoderError('INVALID_CONTENT_LENGTH', 'Invalid Content-Length header');
+        throw new SipFrameDecoderError(
+          SipFrameDecoderErrorCode.INVALID_CONTENT_LENGTH,
+          'Invalid Content-Length header'
+        );
       }
       if (contentLength > this.maxMessageBytes) {
         throw new SipFrameDecoderError(
-          'MESSAGE_TOO_LARGE',
+          SipFrameDecoderErrorCode.MESSAGE_TOO_LARGE,
           `Content-Length ${contentLength} exceeds limit ${this.maxMessageBytes}`
         );
       }
@@ -53,7 +60,7 @@ export class SipFrameDecoder {
       const totalLength = headerEnd + 4 + contentLength;
       if (totalLength > this.maxMessageBytes) {
         throw new SipFrameDecoderError(
-          'MESSAGE_TOO_LARGE',
+          SipFrameDecoderErrorCode.MESSAGE_TOO_LARGE,
           `SIP frame size ${totalLength} exceeds limit ${this.maxMessageBytes}`
         );
       }

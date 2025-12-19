@@ -69,10 +69,10 @@ const createSipRequest = (host: string, callId = 'call-1'): string =>
     '',
   ].join('\r\n');
 
-const createSipResponse = (callId = 'call-1'): string =>
+const createSipResponse = (branch: string, callId = 'call-1'): string =>
   [
     'SIP/2.0 200 OK',
-    'Via: SIP/2.0/TLS 203.0.113.5:5061;branch=z9hG4bK-proxy',
+    `Via: SIP/2.0/TLS 203.0.113.5:5061;branch=${branch}`,
     'From: <sip:alice@example.com>;tag=abc',
     'To: <sip:bob@example.com>;tag=xyz',
     `Call-ID: ${callId}`,
@@ -144,7 +144,11 @@ describe('TlsProxy', () => {
     clientSocket.emitData(request);
     await flushAsync();
 
-    const response = createSipResponse();
+    const storedClient = (tlsProxy as any).clientMap.get('call-1');
+    const proxyBranch = storedClient?.proxyBranch as string;
+    expect(proxyBranch).toBeTruthy();
+
+    const response = createSipResponse(proxyBranch);
     upstreamSocket.emitData(response);
     await flushAsync();
 
