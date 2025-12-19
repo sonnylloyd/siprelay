@@ -11,6 +11,7 @@ export interface ClientInfo {
   address: string;
   port: number;
   branch?: string;
+  proxyBranch?: string;
   rport?: boolean;
   timeout?: NodeJS.Timeout;
   socket?: tls.TLSSocket;
@@ -52,6 +53,9 @@ export abstract class BaseProxy implements Proxy {
     address: string,
     port: number,
     options: {
+      branch?: string;
+      proxyBranch?: string;
+      rport?: boolean;
       sipMessage?: SipMessage;
       transportSocket?: tls.TLSSocket;
       upstreamKey?: string;
@@ -60,10 +64,11 @@ export abstract class BaseProxy implements Proxy {
     this.logger.info(`Storing client ${address}:${port} for Call-ID ${callId}`);
     const existingClient = this.clientMap.get(callId);
 
-    let branch = existingClient?.branch;
-    let rport = existingClient?.rport ?? false;
+    let branch = options.branch ?? existingClient?.branch;
+    let proxyBranch = options.proxyBranch ?? existingClient?.proxyBranch;
+    let rport = options.rport ?? existingClient?.rport ?? false;
 
-    if (options.sipMessage) {
+    if (options.sipMessage && options.branch === undefined) {
       const topVia = options.sipMessage.getTopVia();
       if (topVia) {
         branch = options.sipMessage.getBranchFromVia(topVia) ?? branch;
@@ -75,6 +80,7 @@ export abstract class BaseProxy implements Proxy {
       address,
       port,
       branch,
+      proxyBranch,
       rport,
       socket: options.transportSocket ?? existingClient?.socket,
       upstreamKey: options.upstreamKey ?? existingClient?.upstreamKey,

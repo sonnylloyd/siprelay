@@ -76,6 +76,13 @@ export class SipMessage {
     return isNaN(status) ? undefined : status;
   }
 
+  public getCSeqMethod(): string | undefined {
+    const cseq = this.getFirstHeader('CSeq');
+    if (!cseq) return undefined;
+    const parts = cseq.trim().split(/\s+/);
+    return parts[1]?.toUpperCase();
+  }
+
   getTargetHost(): string | null {
     const requestLine = this.startLine;
     const match = requestLine.match(/^([A-Z]+)\s+sip:([^@]+@)?([^;>\s]+)/i);

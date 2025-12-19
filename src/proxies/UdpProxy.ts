@@ -9,6 +9,18 @@ import { SipMessage } from '../sip/SipMessage';
 export class UdpProxy extends BaseProxy {
   private config: Config;
   private udpSocket: dgram.Socket;
+  private pendingRegistrations: Map<
+    string,
+    {
+      domain: string;
+      user: string;
+      clientAddress: string;
+      clientPort: number;
+      contact?: string;
+      timeout: NodeJS.Timeout;
+    }
+  >;
+  private readonly PENDING_REGISTRATION_TTL_MS = 30000;
 
   constructor(
     records: IRecordStore,
@@ -22,6 +34,7 @@ export class UdpProxy extends BaseProxy {
     });
     this.config = config;
     this.udpSocket = socket ?? dgram.createSocket('udp4');
+    this.pendingRegistrations = new Map();
   }
 
   public start(): void {
@@ -35,7 +48,7 @@ export class UdpProxy extends BaseProxy {
       const callId = sipMsg.getCallId();
 
       if (sipMsg.isResponse()) {
-        this.handleSipResponse(sipMsg, callId);
+        this.handleSipResponse(sipMsg, callId, rinfo);
       } else {
         this.handleSipRequest(sipMsg, callId, rinfo);
       }
@@ -53,7 +66,7 @@ export class UdpProxy extends BaseProxy {
   ): void {
     const method = sipMsg.getMethod();
     if (method === 'REGISTER') {
-      this.handleRegistrationBinding(sipMsg, rinfo);
+      this.trackPendingRegistration(callId, sipMsg, rinfo);
     }
 
     const destinationHost = sipMsg.getTargetHost();
@@ -73,17 +86,31 @@ export class UdpProxy extends BaseProxy {
       return;
     }
 
-    if (callId) {
-      this.storeClient(callId, rinfo.address, rinfo.port, { sipMessage: sipMsg });
-    }
+    const clientTopVia = sipMsg.getTopVia();
+    const clientBranch = clientTopVia ? sipMsg.getBranchFromVia(clientTopVia) : undefined;
+    const clientRport = clientTopVia ? sipMsg.hasRPort(clientTopVia) : false;
 
     const branch = this.addProxyHeaders(sipMsg, 'UDP', this.config.PROXY_IP, this.config.SIP_UDP_PORT);
+
+    if (callId) {
+      this.storeClient(callId, rinfo.address, rinfo.port, {
+        branch: clientBranch,
+        proxyBranch: branch,
+        rport: clientRport,
+        sipMessage: sipMsg,
+        upstreamKey: this.buildUpstreamKey(record),
+      });
+    }
 
     this.logger.info(`Forwarding SIP request to PBX ${record.ip} (branch ${branch})`);
     this.udpSocket.send(Buffer.from(sipMsg.toString()), record.udpPort, record.ip);
   }
 
-  private handleSipResponse(sipMsg: SipMessage, callId: string | undefined): void {
+  private handleSipResponse(
+    sipMsg: SipMessage,
+    callId: string | undefined,
+    rinfo: dgram.RemoteInfo
+  ): void {
     if (!callId) {
       this.logger.warn(`No Call-ID found in SIP response.`);
       return;
@@ -95,13 +122,35 @@ export class UdpProxy extends BaseProxy {
       return;
     }
 
+    if (clientInfo.upstreamKey) {
+      const receivedUpstream = this.buildUpstreamKeyFromRinfo(rinfo);
+      if (receivedUpstream !== clientInfo.upstreamKey) {
+        this.logger.warn(
+          `Dropping SIP response for Call-ID ${callId} from unexpected upstream ${receivedUpstream}`
+        );
+        return;
+      }
+    }
+
+    const topVia = sipMsg.getTopVia();
+    const viaBranch = topVia ? sipMsg.getBranchFromVia(topVia) : undefined;
+    if (clientInfo.proxyBranch && clientInfo.proxyBranch !== viaBranch) {
+      this.logger.warn(
+        `Dropping SIP response for Call-ID ${callId} due to Via branch mismatch (expected ${clientInfo.proxyBranch}, got ${viaBranch})`
+      );
+      return;
+    }
+
+    this.handleRegistrationResponse(callId, sipMsg, rinfo);
     this.prepareSipResponseForClient(sipMsg, clientInfo, 'UDP', this.config.PROXY_IP);
 
     this.logger.info(`Forwarding SIP response to client at ${clientInfo.address}:${clientInfo.port}`);
     this.udpSocket.send(Buffer.from(sipMsg.toString()), clientInfo.port, clientInfo.address);
   }
 
-  private handleRegistrationBinding(sipMsg: SipMessage, rinfo: dgram.RemoteInfo): void {
+  private trackPendingRegistration(callId: string | undefined, sipMsg: SipMessage, rinfo: dgram.RemoteInfo): void {
+    if (!callId) return;
+
     const aor = sipMsg.getAddressOfRecord();
     const domain = aor?.host ?? sipMsg.getTargetHost();
     const user = aor?.user ?? sipMsg.getTargetUser();
@@ -111,29 +160,78 @@ export class UdpProxy extends BaseProxy {
       return;
     }
 
-    const expires = this.getRegistrationExpiry(sipMsg);
-    if (expires === null) return;
-
-    if (expires === 0) {
-      const removed = this.registrationStore.remove(domain, user);
-      if (removed) {
-        this.logger.info(`Removed registration for ${user}@${domain}`);
-      }
-      return;
+    const existing = this.pendingRegistrations.get(callId);
+    if (existing) {
+      clearTimeout(existing.timeout);
     }
 
-    const contact = sipMsg.getContactHeaders()[0];
-    this.registrationStore.upsert({
+    const timeout = setTimeout(() => this.pendingRegistrations.delete(callId), this.PENDING_REGISTRATION_TTL_MS);
+
+    this.pendingRegistrations.set(callId, {
       domain,
       user,
       clientAddress: rinfo.address,
       clientPort: rinfo.port,
+      contact: sipMsg.getContactHeaders()[0],
+      timeout,
+    });
+  }
+
+  private handleRegistrationResponse(
+    callId: string,
+    sipMsg: SipMessage,
+    _rinfo: dgram.RemoteInfo
+  ): void {
+    const pending = this.pendingRegistrations.get(callId);
+    if (!pending) return;
+
+    const clearPending = () => {
+      clearTimeout(pending.timeout);
+      this.pendingRegistrations.delete(callId);
+    };
+
+    const status = sipMsg.getStatusCode();
+    const cseqMethod = sipMsg.getCSeqMethod()?.toUpperCase();
+    if (cseqMethod !== 'REGISTER') {
+      clearPending();
+      return;
+    }
+
+    if (!status || status < 200 || status >= 300) {
+      clearPending();
+      return;
+    }
+
+    const expires = this.getRegistrationExpiry(sipMsg);
+    if (expires === null) {
+      clearPending();
+      return;
+    }
+
+    if (expires === 0) {
+      const removed = this.registrationStore.remove(pending.domain, pending.user);
+      if (removed) {
+        this.logger.info(`Removed registration for ${pending.user}@${pending.domain}`);
+      }
+      clearPending();
+      return;
+    }
+
+    const contact = sipMsg.getContactHeaders()[0] ?? pending.contact;
+    const binding = {
+      domain: pending.domain,
+      user: pending.user,
+      clientAddress: pending.clientAddress,
+      clientPort: pending.clientPort,
       contact,
       expiresAt: Date.now() + expires * 1000,
-    });
+    };
+
+    this.registrationStore.upsert(binding);
+    clearPending();
 
     this.logger.info(
-      `Stored registration for ${user}@${domain} via ${rinfo.address}:${rinfo.port} (expires in ${expires}s)`
+      `Stored registration for ${binding.user}@${binding.domain} via ${binding.clientAddress}:${binding.clientPort} (expires in ${expires}s)`
     );
   }
 
@@ -182,6 +280,14 @@ export class UdpProxy extends BaseProxy {
       return;
     }
 
+    const record = this.records.getRecord(domain);
+    if (record?.udpPort && (rinfo.address !== record.ip || rinfo.port !== record.udpPort)) {
+      this.logger.warn(
+        `Dropping PBX-sourced request from unexpected endpoint ${rinfo.address}:${rinfo.port} (expected ${record.ip}:${record.udpPort})`
+      );
+      return;
+    }
+
     this.registrationStore.purgeExpired();
     const binding = this.registrationStore.get(domain, targetUser);
     if (!binding) {
@@ -193,12 +299,28 @@ export class UdpProxy extends BaseProxy {
     sipMsg.addViaTop(`SIP/2.0/UDP ${this.config.PROXY_IP}:${this.config.SIP_UDP_PORT};branch=${branch}`);
 
     if (sipMsg.getCallId()) {
-      this.storeClient(sipMsg.getCallId()!, rinfo.address, rinfo.port, { sipMessage: sipMsg });
+      this.storeClient(sipMsg.getCallId()!, rinfo.address, rinfo.port, {
+        proxyBranch: branch,
+        sipMessage: sipMsg,
+        upstreamKey: this.buildClientUpstreamKey(binding),
+      });
     }
 
     this.logger.info(
       `Forwarding PBX request for ${targetUser}@${domain} to ${binding.clientAddress}:${binding.clientPort}`
     );
     this.udpSocket.send(Buffer.from(sipMsg.toString()), binding.clientPort, binding.clientAddress);
+  }
+
+  private buildUpstreamKey(record: IPValue): string {
+    return `udp:${record.ip}:${record.udpPort}`;
+  }
+
+  private buildUpstreamKeyFromRinfo(rinfo: dgram.RemoteInfo): string {
+    return `udp:${rinfo.address}:${rinfo.port}`;
+  }
+
+  private buildClientUpstreamKey(binding: { clientAddress: string; clientPort: number }): string {
+    return `udp:${binding.clientAddress}:${binding.clientPort}`;
   }
 }

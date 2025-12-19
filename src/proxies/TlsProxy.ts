@@ -26,6 +26,8 @@ export class TlsProxy extends BaseProxy {
   private upstreamConnections: Map<string, { socket: tls.TLSSocket; idleTimer?: NodeJS.Timeout }>;
   private connectionPromises: Map<string, Promise<tls.TLSSocket>>;
   private readonly UPSTREAM_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
+  private readonly MAX_SIP_MESSAGE_BYTES = 64 * 1024;
+  private readonly MAX_BUFFER_BYTES = 256 * 1024;
   private socketBuffers: WeakMap<tls.TLSSocket, string>;
 
   constructor(
@@ -67,7 +69,7 @@ export class TlsProxy extends BaseProxy {
       const callId = sipMessage.getCallId();
 
       if (sipMessage.isResponse()) {
-        this.handleClientResponse(sipMessage, callId);
+        this.handleClientResponse(socket, sipMessage, callId);
         continue;
       }
 
@@ -122,16 +124,9 @@ export class TlsProxy extends BaseProxy {
     }
 
     const upstreamKey = this.getUpstreamKey(record);
-
-    if (callId) {
-      const remoteAddress = socket.remoteAddress || 'unknown';
-      const remotePort = socket.remotePort || 5061;
-      this.storeClient(callId, remoteAddress, remotePort, {
-        sipMessage,
-        transportSocket: socket,
-        upstreamKey,
-      });
-    }
+    const clientTopVia = sipMessage.getTopVia();
+    const clientBranch = clientTopVia ? sipMessage.getBranchFromVia(clientTopVia) : undefined;
+    const clientRport = clientTopVia ? sipMessage.hasRPort(clientTopVia) : false;
 
     const branch = this.addProxyHeaders(
       sipMessage,
@@ -140,6 +135,19 @@ export class TlsProxy extends BaseProxy {
       this.config.SIP_TLS_PORT
     );
     this.logger.info(`New proxy Via Header with branch ${branch}`);
+
+    if (callId) {
+      const remoteAddress = socket.remoteAddress || 'unknown';
+      const remotePort = socket.remotePort || 5061;
+      this.storeClient(callId, remoteAddress, remotePort, {
+        branch: clientBranch,
+        proxyBranch: branch,
+        rport: clientRport,
+        sipMessage,
+        transportSocket: socket,
+        upstreamKey,
+      });
+    }
 
     try {
       const upstream = await this.ensureUpstreamConnection(record);
@@ -151,7 +159,11 @@ export class TlsProxy extends BaseProxy {
     }
   }
 
-  private handleClientResponse(sipMessage: SipMessage, callId: string | undefined): void {
+  private handleClientResponse(
+    socket: tls.TLSSocket,
+    sipMessage: SipMessage,
+    callId: string | undefined
+  ): void {
     if (!callId) {
       this.logger.warn('Call-ID missing in SIP response');
       return;
@@ -160,6 +172,20 @@ export class TlsProxy extends BaseProxy {
     const clientInfo = this.getClient(callId);
     if (!clientInfo?.upstreamKey) {
       this.logger.warn(`No upstream mapping for Call-ID ${callId}`);
+      return;
+    }
+
+    if (clientInfo.socket && clientInfo.socket !== socket) {
+      this.logger.warn(`Dropping SIP response for Call-ID ${callId} from unexpected client socket`);
+      return;
+    }
+
+    const topVia = sipMessage.getTopVia();
+    const viaBranch = topVia ? sipMessage.getBranchFromVia(topVia) : undefined;
+    if (clientInfo.proxyBranch && viaBranch && clientInfo.proxyBranch !== viaBranch) {
+      this.logger.warn(
+        `Dropping SIP response for Call-ID ${callId} due to Via branch mismatch (expected ${clientInfo.proxyBranch}, got ${viaBranch})`
+      );
       return;
     }
 
@@ -299,11 +325,11 @@ export class TlsProxy extends BaseProxy {
     this.resetIdleTimer(key, socket);
     const messages = this.extractSipFrames(socket, data);
     for (const sipRaw of messages) {
-      this.forwardUpstreamSipMessage(sipRaw);
+      this.forwardUpstreamSipMessage(key, sipRaw);
     }
   }
 
-  private forwardUpstreamSipMessage(rawMessage: string): void {
+  private forwardUpstreamSipMessage(upstreamKey: string, rawMessage: string): void {
     const sipMessage = new SipMessage(rawMessage);
     if (!sipMessage.isResponse()) {
       this.logger.warn('Dropping unsupported upstream SIP request');
@@ -319,6 +345,22 @@ export class TlsProxy extends BaseProxy {
     const clientInfo = this.getClient(callId);
     if (!clientInfo?.socket || clientInfo.socket.destroyed) {
       this.logger.warn(`No active client socket for Call-ID ${callId}`);
+      return;
+    }
+
+    if (clientInfo.upstreamKey && clientInfo.upstreamKey !== upstreamKey) {
+      this.logger.warn(
+        `Dropping SIP response for Call-ID ${callId} from mismatched upstream ${upstreamKey}`
+      );
+      return;
+    }
+
+    const topVia = sipMessage.getTopVia();
+    const viaBranch = topVia ? sipMessage.getBranchFromVia(topVia) : undefined;
+    if (clientInfo.proxyBranch && viaBranch && clientInfo.proxyBranch !== viaBranch) {
+      this.logger.warn(
+        `Dropping SIP response for Call-ID ${callId} due to Via branch mismatch (expected ${clientInfo.proxyBranch}, got ${viaBranch})`
+      );
       return;
     }
 
@@ -351,6 +393,16 @@ export class TlsProxy extends BaseProxy {
   private extractSipFrames(socket: tls.TLSSocket, chunk: Buffer): string[] {
     const previous = this.socketBuffers.get(socket) ?? '';
     let buffer = previous + chunk.toString();
+
+    if (buffer.length > this.MAX_BUFFER_BYTES) {
+      this.logger.warn(
+        `Closing TLS socket due to oversized buffered data (${buffer.length} bytes > ${this.MAX_BUFFER_BYTES})`
+      );
+      socket.destroy();
+      this.socketBuffers.delete(socket);
+      return [];
+    }
+
     const messages: string[] = [];
 
     while (true) {
@@ -359,7 +411,30 @@ export class TlsProxy extends BaseProxy {
 
       const headers = buffer.slice(0, headerEnd);
       const contentLength = this.parseContentLength(headers);
+      if (contentLength === null) {
+        this.logger.warn('Closing TLS socket due to invalid Content-Length');
+        socket.destroy();
+        this.socketBuffers.delete(socket);
+        return [];
+      }
+      if (contentLength > this.MAX_SIP_MESSAGE_BYTES) {
+        this.logger.warn(
+          `Closing TLS socket due to excessive Content-Length (${contentLength} bytes)`
+        );
+        socket.destroy();
+        this.socketBuffers.delete(socket);
+        return [];
+      }
+
       const totalLength = headerEnd + 4 + contentLength;
+      if (totalLength > this.MAX_SIP_MESSAGE_BYTES) {
+        this.logger.warn(
+          `Closing TLS socket due to oversized SIP message (${totalLength} bytes)`
+        );
+        socket.destroy();
+        this.socketBuffers.delete(socket);
+        return [];
+      }
 
       if (buffer.length < totalLength) break;
 
@@ -371,11 +446,12 @@ export class TlsProxy extends BaseProxy {
     return messages;
   }
 
-  private parseContentLength(headers: string): number {
+  private parseContentLength(headers: string): number | null {
     const match = headers.match(/Content-Length:\s*(\d+)/i);
     if (!match) return 0;
     const len = Number.parseInt(match[1], 10);
-    return Number.isFinite(len) ? len : 0;
+    if (!Number.isFinite(len) || len < 0) return null;
+    return len;
   }
 
   private async writeToSocket(socket: tls.TLSSocket, payload: string): Promise<void> {
