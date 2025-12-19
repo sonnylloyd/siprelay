@@ -29,45 +29,64 @@ export class DockerWatcher implements ServiceWatcher {
 
   public async update(): Promise<void> {
     try {
-      const listFilters = { label: [Labels.SIP_PROXY_HOST] };
-      const containers: ContainerInfo[] = await this.docker.listContainers({ filters: listFilters });
-      const seenContainerIds = new Set<string>();
-      const activeHostnames = new Set<string>();
+      const containers = await this.listWatchedContainers();
+      const seenContainerIds = await this.syncActiveContainers(containers);
+      const activeHostnames = this.collectActiveHostnames(containers);
 
-      await Promise.all(
-        containers.map(async (container: ContainerInfo) => {
-          seenContainerIds.add(container.Id);
-          await this.processContainer(container.Id, container);
-          const labelHost = container.Labels?.[Labels.SIP_PROXY_HOST];
-          if (labelHost) activeHostnames.add(labelHost);
-        })
-      );
-
-      // Purge container map entries for containers that vanished without events
-      for (const containerId of this.containerHosts.keys()) {
-        if (!seenContainerIds.has(containerId)) {
-          const hostname = this.containerHosts.get(containerId);
-          if (hostname) {
-            this.records.deleteRecord(hostname);
-            this.logger.info(`Record removed (stale): ${hostname}`);
-          }
-          this.containerHosts.delete(containerId);
-        }
-      }
-
-      // Remove records that no longer have a backing container
-      const currentRecords = this.records.getAllRecords();
-      for (const hostname of Object.keys(currentRecords)) {
-        if (!activeHostnames.has(hostname)) {
-          if (this.records.deleteRecord(hostname)) {
-            this.logger.info(`Record removed (stale): ${hostname}`);
-          }
-        }
-      }
-
+      this.purgeMissingContainers(seenContainerIds);
+      this.purgeStaleRecords(activeHostnames);
       this.logger.info('PBX routing map refreshed');
     } catch (error) {
       this.logger.error('Error updating map:', error);
+    }
+  }
+
+  private async listWatchedContainers(): Promise<ContainerInfo[]> {
+    const listFilters = { label: [Labels.SIP_PROXY_HOST] };
+    return this.docker.listContainers({ filters: listFilters });
+  }
+
+  private async syncActiveContainers(containers: ContainerInfo[]): Promise<Set<string>> {
+    const seenContainerIds = new Set<string>();
+    await Promise.all(
+      containers.map(async (container: ContainerInfo) => {
+        seenContainerIds.add(container.Id);
+        await this.processContainer(container.Id, container);
+      })
+    );
+    return seenContainerIds;
+  }
+
+  private collectActiveHostnames(containers: ContainerInfo[]): Set<string> {
+    const activeHostnames = new Set<string>();
+    for (const container of containers) {
+      const labelHost = container.Labels?.[Labels.SIP_PROXY_HOST];
+      if (labelHost) activeHostnames.add(labelHost);
+    }
+    return activeHostnames;
+  }
+
+  private purgeMissingContainers(seenContainerIds: Set<string>): void {
+    for (const containerId of this.containerHosts.keys()) {
+      if (!seenContainerIds.has(containerId)) {
+        const hostname = this.containerHosts.get(containerId);
+        if (hostname) {
+          this.records.deleteRecord(hostname);
+          this.logger.info(`Record removed (stale): ${hostname}`);
+        }
+        this.containerHosts.delete(containerId);
+      }
+    }
+  }
+
+  private purgeStaleRecords(activeHostnames: Set<string>): void {
+    const currentRecords = this.records.getAllRecords();
+    for (const hostname of Object.keys(currentRecords)) {
+      if (!activeHostnames.has(hostname)) {
+        if (this.records.deleteRecord(hostname)) {
+          this.logger.info(`Record removed (stale): ${hostname}`);
+        }
+      }
     }
   }
 
@@ -80,37 +99,32 @@ export class DockerWatcher implements ServiceWatcher {
         this.handleStopEvent(containerId);
         return;
       }
-  
-      const hostname = this.extractHostname(info);
-      if (!hostname) return;
-  
-      const ip = this.extractIP(info) ?? this.extractName(info) ?? hostname;
 
-      const udpPort = this.extractUdpPort(info);
-      const tlsPort = this.extractTlsPort(info);
+      const routing = this.extractRoutingInfo(info);
+      if (!routing || !routing.hostname) return;
 
-      if (udpPort || tlsPort) {
-        const record: IPValue = {
-          ip,
-          udpPort: udpPort ? Number(udpPort) : undefined,
-          tlsPort: tlsPort ? Number(tlsPort) : undefined
-        };
+      const record: IPValue = {
+        ip: routing.ip ?? routing.hostname,
+        udpPort: routing.udpPort,
+        tlsPort: routing.tlsPort,
+      };
 
-        const existing = this.records.getRecord(hostname);
-        if (existing && this.recordsEqual(existing, record)) {
-          this.containerHosts.set(containerId, hostname);
-          return;
-        }
-
-        this.records.addRecord(hostname, record);
-        this.containerHosts.set(containerId, hostname);
-
-        const action = existing ? 'Updated' : 'Added';
-        this.logger.info(`${action} record: ${hostname} → ${JSON.stringify(record)}`);
+      if (!routing.udpPort && !routing.tlsPort) {
+        this.logger.warn(`No SIP port labels found for container ${containerId} (hostname: ${routing.hostname})`);
         return;
       }
 
-      this.logger.warn(`No SIP port labels found for container ${containerId} (hostname: ${hostname})`);
+      const existing = this.records.getRecord(routing.hostname);
+      if (existing && this.recordsEqual(existing, record)) {
+        this.containerHosts.set(containerId, routing.hostname);
+        return;
+      }
+
+      this.records.addRecord(routing.hostname, record);
+      this.containerHosts.set(containerId, routing.hostname);
+
+      const action = existing ? 'Updated' : 'Added';
+      this.logger.info(`${action} record: ${routing.hostname} → ${JSON.stringify(record)}`);
     } catch (error) {
       this.logger.error(`Error processing container ${containerId}:`, error);
     }
@@ -151,6 +165,48 @@ export class DockerWatcher implements ServiceWatcher {
     return info.Labels;
   }
 
+  private isRunning(info: ContainerInspectInfo | ContainerInfo): boolean {
+    if ('State' in info && typeof info.State === 'object') {
+      return Boolean(info.State?.Running);
+    }
+    if ('State' in info && typeof info.State === 'string') {
+      return info.State === 'running';
+    }
+    return true;
+  }
+
+  private recordsEqual(a: IPValue, b: IPValue): boolean {
+    return a.ip === b.ip && a.udpPort === b.udpPort && a.tlsPort === b.tlsPort;
+  }
+
+  private extractRoutingInfo(info: ContainerInspectInfo | ContainerInfo): {
+    hostname?: string;
+    ip?: string;
+    udpPort?: number;
+    tlsPort?: number;
+  } | null {
+    const labels = this.extractLabels(info);
+    const hostname = labels?.[Labels.SIP_PROXY_HOST];
+    if (!hostname) return null;
+
+    const udpPort = this.parsePort(labels?.[Labels.SIP_PROXY_PORT_UDP]);
+    const tlsPort = this.parsePort(labels?.[Labels.SIP_PROXY_PORT_TLS]);
+    const explicitIp = labels?.[Labels.SIP_PROXY_IP];
+
+    return {
+      hostname,
+      ip: explicitIp ?? this.extractNetworkIp(info) ?? this.extractName(info),
+      udpPort,
+      tlsPort,
+    };
+  }
+
+  private parsePort(port?: string): number | undefined {
+    if (!port) return undefined;
+    const parsed = Number(port);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+
   private extractName(info: ContainerInspectInfo | ContainerInfo): string | undefined {
     if ('Name' in info && info.Name) {
       return info.Name.replace(/^\//, '');
@@ -176,19 +232,6 @@ export class DockerWatcher implements ServiceWatcher {
     return undefined;
   }
 
-  private isRunning(info: ContainerInspectInfo | ContainerInfo): boolean {
-    if ('State' in info && typeof info.State === 'object') {
-      return Boolean(info.State?.Running);
-    }
-    if ('State' in info && typeof info.State === 'string') {
-      return info.State === 'running';
-    }
-    return true;
-  }
-
-  private recordsEqual(a: IPValue, b: IPValue): boolean {
-    return a.ip === b.ip && a.udpPort === b.udpPort && a.tlsPort === b.tlsPort;
-  }
 
   public async watch(): Promise<void> {
     this.logger.info('DockerWatcher started. Listening for container events...');
