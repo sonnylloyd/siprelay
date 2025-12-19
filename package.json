@@ -11,6 +11,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "awilix": "^12.0.5",
     "cors": "^2.8.5",
     "dockerode": "^4.0.4",
     "dotenv": "^16.4.7",
@@ -22,8 +23,8 @@
     "@types/cors": "^2.8.17",
     "@types/dockerode": "^3.3.34",
     "@types/express": "^5.0.0",
-    "@types/nunjucks": "^3.2.6",
     "@types/node": "^22.10.10",
+    "@types/nunjucks": "^3.2.6",
     "@types/sdp-transform": "^2.4.9",
     "typescript": "^5.7.3",
     "vitest": "^1.6.0"

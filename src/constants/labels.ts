@@ -4,3 +4,5 @@ export const Labels = {
     SIP_PROXY_PORT_TLS: 'sip-proxy-port-tls',
     SIP_PROXY_IP: 'sip-proxy-ip' // optional override
 };
+
+export type LabelsType = (typeof Labels)[keyof typeof Labels];

@@ -4,8 +4,7 @@ import { IPValue, IRecordStore, RegistrationStore } from './../store';
 import { Logger } from '../logging/Logger';
 import { Proxy } from './Proxy';
 import { SipMessage } from './../sip';
-
-export type SipTransport = 'UDP' | 'TLS' | 'TCP';
+import { ProtocalType } from '../constants/protocal';
 
 export interface ClientInfo {
   address: string;
@@ -107,7 +106,7 @@ export abstract class BaseProxy implements Proxy {
 
   protected addProxyHeaders(
     sipMessage: SipMessage,
-    transport: SipTransport,
+    transport: ProtocalType,
     proxyIp: string,
     proxyPort: number
   ): string {
@@ -124,7 +123,7 @@ export abstract class BaseProxy implements Proxy {
   protected prepareSipResponseForClient(
     sipMessage: SipMessage,
     clientInfo: ClientInfo,
-    transport: SipTransport,
+    transport: ProtocalType,
     proxyIp: string
   ): void {
     const viaHeader = this.buildClientViaHeader(transport, clientInfo);
@@ -135,7 +134,7 @@ export abstract class BaseProxy implements Proxy {
   }
 
   private buildProxyViaHeader(
-    transport: SipTransport,
+    transport: ProtocalType,
     host: string,
     port: number,
     branch: string
@@ -143,7 +142,7 @@ export abstract class BaseProxy implements Proxy {
     return `SIP/2.0/${transport} ${host}:${port};branch=${branch}`;
   }
 
-  private buildClientViaHeader(transport: SipTransport, clientInfo: ClientInfo): string {
+  private buildClientViaHeader(transport: ProtocalType, clientInfo: ClientInfo): string {
     const parts = [`SIP/2.0/${transport} ${clientInfo.address}:${clientInfo.port}`];
     if (clientInfo.branch) {
       parts.push(`;branch=${clientInfo.branch}`);

@@ -1,41 +1,27 @@
 import { Config } from './configurations';
-import { MemoryStore, RegistrationStore } from './store';
-import { DockerWatcher } from './watchers';
 import { ConsoleLogger } from './logging';
+import { Logger } from './logging/Logger';
 import { TlsProxy } from './proxies/TlsProxy';
 import { UdpProxy } from './proxies/UdpProxy';
 import { ApiServer } from './http';
+import { ServiceWatcher } from './watchers/ServiceWatcher';
+import { ProxyInitializer } from './bootstrap/ProxyInitializer';
+import { container } from './container';
 import * as fs from 'fs';
 
-// Initialize logger
-const logger = new ConsoleLogger();
+const logger = container.resolve<Logger>('logger');
+const config = container.resolve<Config>('config');
 
-// Load configurations
-const config = new Config();
-
-// Initialize PBX Records store
-const records = new MemoryStore();
-const registrationStore = new RegistrationStore();
-
-// Initialize Docker Watcher to dynamically update PBX records
-const dockerWatcher = new DockerWatcher(records, logger);
-dockerWatcher.watch();
+// Initialize Service Watcher to dynamically update PBX records
+const serviceWatcher = container.resolve<ServiceWatcher>('serviceWatcher');
+serviceWatcher.watch();
 
 // Initialize Proxies
-const udpProxy = new UdpProxy(records, config, logger, registrationStore);
-udpProxy.start();
-
-// Check if TLS key and cert files exist, if so, start the TLS proxy
-if (fs.existsSync(config.SIP_TLS_KEY_PATH) && fs.existsSync(config.SIP_TLS_CERT_PATH)) {
-  logger.info('TLS key and certificate found. Starting TLS proxy...');
-  const tlsProxy = new TlsProxy(records, config, logger, registrationStore);
-  tlsProxy.start();
-} else {
-  logger.info('TLS key and certificate not found. Skipping TLS proxy.');
-}
+const proxyInitializer = container.resolve<ProxyInitializer>('proxyInitializer');
+proxyInitializer.start();
 
 // Start the API server
-const apiServer = new ApiServer(config, logger, records);
+const apiServer = container.resolve<ApiServer>('apiServer');
 apiServer.start();
 
 // Graceful shutdown handling
