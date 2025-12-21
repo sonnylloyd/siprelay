@@ -139,25 +139,6 @@ export class DockerWatcher implements ServiceWatcher {
     }
   }
 
-  private extractHostname(containerInfo: ContainerInspectInfo | ContainerInfo): string | undefined {
-    const labels = this.extractLabels(containerInfo);
-    return labels?.[Labels.SIP_PROXY_HOST];
-  }
-  
-  private extractIP(info: ContainerInspectInfo | ContainerInfo): string | undefined {
-    const labels = this.extractLabels(info);
-    if (labels?.[Labels.SIP_PROXY_IP]) return labels[Labels.SIP_PROXY_IP];
-    return this.extractNetworkIp(info);
-  }
-  
-  private extractUdpPort(containerInfo: ContainerInspectInfo | ContainerInfo): string | undefined {
-    return this.extractLabels(containerInfo)?.[Labels.SIP_PROXY_PORT_UDP];
-  }
-  
-  private extractTlsPort(containerInfo: ContainerInspectInfo | ContainerInfo): string | undefined {
-    return this.extractLabels(containerInfo)?.[Labels.SIP_PROXY_PORT_TLS];
-  }  
-  
   private extractLabels(info: ContainerInspectInfo | ContainerInfo): Record<string, string> | undefined {
     if ('Config' in info) {
       return info.Config?.Labels || undefined;
