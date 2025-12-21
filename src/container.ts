@@ -1,6 +1,6 @@
 import { createContainer, asClass, asFunction, InjectionMode } from 'awilix';
 import { Config } from './configurations';
-import { MemoryStore, RegistrationStore } from './store';
+import { RecordStoreFactory, RegistrationStore } from './store';
 import { ServiceWatcherFactory } from './watchers';
 import { ConsoleLogger } from './logging';
 import { UdpProxy } from './proxies/UdpProxy';
@@ -13,7 +13,7 @@ const container = createContainer({ injectionMode: InjectionMode.PROXY });
 container.register({
   logger: asClass(ConsoleLogger).singleton(),
   config: asClass(Config).singleton(),
-  records: asClass(MemoryStore).singleton(),
+  records: asFunction(({ config }) => RecordStoreFactory.create(config)).singleton(),
   registrationStore: asClass(RegistrationStore).singleton(),
   serviceWatcher: asFunction(({ config, records, logger }) =>
     ServiceWatcherFactory.create(config, records, logger)
