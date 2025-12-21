@@ -226,18 +226,7 @@ export class DockerWatcher implements ServiceWatcher {
     
     const eventStream = await this.docker.getEvents(eventOptions);
 
-    eventStream.on('data', async (chunk: Buffer) => {
-      this.eventBuffer += chunk.toString();
-      const lines = this.eventBuffer.split('\n');
-      this.eventBuffer = lines.pop() ?? '';
-
-      for (const line of lines) {
-        const event = this.parseEvent(line);
-        if (event) {
-          await this.handleEvent(event);
-        }
-      }
-    });
+    eventStream.on('data', (chunk: Buffer) => this.handleEventChunk(chunk));
 
     eventStream.on('error', (error) => {
       this.logger.error('Docker event stream error:', error);
@@ -259,6 +248,19 @@ export class DockerWatcher implements ServiceWatcher {
     } catch (error) {
       this.logger.error('Error parsing event:', error);
       return null;
+    }
+  }
+
+  private async handleEventChunk(chunk: Buffer): Promise<void> {
+    this.eventBuffer += chunk.toString();
+    const lines = this.eventBuffer.split('\n');
+    this.eventBuffer = lines.pop() ?? '';
+
+    for (const line of lines) {
+      const event = this.parseEvent(line);
+      if (event) {
+        await this.handleEvent(event);
+      }
     }
   }
 
