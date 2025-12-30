@@ -2,9 +2,15 @@ import { IRecordStore, IPValue } from "./";
 
 export class MemoryStore implements IRecordStore {
   private records: Record<string, IPValue> = {};
+  private ipIndex: Map<string, string> = new Map();
 
   public addRecord(hostname: string, ip: IPValue): IPValue {
+    const existing = this.records[hostname];
+    if (existing) {
+      this.ipIndex.delete(existing.ip);
+    }
     this.records[hostname] = ip;
+    this.ipIndex.set(ip.ip, hostname);
     return ip;
   }
 
@@ -17,15 +23,22 @@ export class MemoryStore implements IRecordStore {
   }
 
   public deleteRecord(hostname: string): boolean {
-    if (this.records[hostname]) {
+    const existing = this.records[hostname];
+    if (existing) {
       delete this.records[hostname];
+      this.ipIndex.delete(existing.ip);
       return true;
     }
     return false;
   }
 
   public updateRecord(hostname: string, ip: IPValue): IPValue | undefined {
-    if (this.records[hostname]) {
+    const existing = this.records[hostname];
+    if (existing) {
+      if (existing.ip !== ip.ip) {
+        this.ipIndex.delete(existing.ip);
+        this.ipIndex.set(ip.ip, hostname);
+      }
       this.records[hostname] = ip;
       return ip;
     }
@@ -33,11 +46,6 @@ export class MemoryStore implements IRecordStore {
   }
 
   public findHostnameByIp(ip: string): string | undefined {
-    for (const [hostname, value] of Object.entries(this.records)) {
-      if (value.ip === ip) {
-        return hostname;
-      }
-    }
-    return undefined;
+    return this.ipIndex.get(ip);
   }
 }
