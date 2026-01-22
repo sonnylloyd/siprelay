@@ -16,7 +16,9 @@ services:
       - "8080:8080/tcp"
     volumes:
       #- ./ssl:/ssl
-      - /var/run/docker.sock:/var/run/docker.sock  # Allow watching Docker events
+      - /var/run/docker.sock:/var/run/docker.sock:ro  # Allow watching Docker events (read-only)
+    group_add:
+      - "${DOCKER_SOCK_GID}" # Match host docker.sock GID for read access
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
       interval: 30s

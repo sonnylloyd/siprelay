@@ -24,8 +24,11 @@ RUN npm run build
 # ----------------------
 FROM node:20-alpine
 
-# Create the /ssl directory and ensure it's writable
-RUN mkdir -p /ssl && chmod -R 777 /ssl
+# Create non-root user/group
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+
+# Create the /ssl directory and ensure it's writable by appuser
+RUN mkdir -p /ssl && chown -R appuser:appgroup /ssl
 
 # Set working directory
 WORKDIR /app
@@ -41,16 +44,16 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package.json ./
 
+# Ensure app files are owned by appuser
+RUN chown -R appuser:appgroup /app
+
 # Expose SIP (UDP/TCP) and HTTP API ports
 EXPOSE 5060/udp
 EXPOSE 5061/tcp
 EXPOSE 8080/tcp
 
-# Set a non-root user for security
-#RUN addgroup -S appgroup && adduser -S appuser -G appgroup
-
-# 🛠️ Fix: Temporarily use root to set permissions
-#USER root
+# Run as non-root
+USER appuser
 
 # Set entrypoint
 CMD ["node", "dist/server.js"]
