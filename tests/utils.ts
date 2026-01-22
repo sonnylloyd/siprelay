@@ -15,6 +15,7 @@ export const createTestConfig = (overrides: Partial<Config> = {}): Config =>
   } as Config);
 
 export const createTestLogger = (): Logger => ({
+  debug: vi.fn(),
   info: vi.fn(),
   warn: vi.fn(),
   error: vi.fn(),
