@@ -70,8 +70,8 @@ export class SipFrameDecoder {
 
       if (this.buffer.length < totalLength) break;
 
-      messages.push(this.buffer.slice(0, totalLength).toString());
-      this.buffer = this.buffer.slice(totalLength);
+      messages.push(this.buffer.subarray(0, totalLength).toString());
+      this.buffer = this.buffer.subarray(totalLength);
     }
 
     return messages;
