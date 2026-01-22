@@ -19,6 +19,7 @@ export class DockerWatcher implements ServiceWatcher {
   private logger: Logger;
   private containerHosts: Map<string, string>;
   private eventBuffer = '';
+  private readonly inspectConcurrency = 5;
 
   constructor(records: IRecordStore, logger: Logger) {
     this.docker = new Docker();
@@ -48,12 +49,19 @@ export class DockerWatcher implements ServiceWatcher {
 
   private async syncActiveContainers(containers: ContainerInfo[]): Promise<Set<string>> {
     const seenContainerIds = new Set<string>();
-    await Promise.all(
-      containers.map(async (container: ContainerInfo) => {
+    let index = 0;
+    const worker = async () => {
+      while (index < containers.length) {
+        const container = containers[index++];
         seenContainerIds.add(container.Id);
         await this.processContainer(container.Id, container);
-      })
+      }
+    };
+    const workers = Array.from(
+      { length: Math.min(this.inspectConcurrency, containers.length) },
+      () => worker()
     );
+    await Promise.all(workers);
     return seenContainerIds;
   }
 

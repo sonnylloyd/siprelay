@@ -58,7 +58,7 @@ export class SipResponseValidator {
       return { ok: false, reason: 'Via branch missing on response' };
     }
 
-    this.logger.info(`Validated SIP response for Call-ID ${callId}`);
+    this.logger.debug(`Validated SIP response for Call-ID ${callId}`);
     return { ok: true };
   }
 }

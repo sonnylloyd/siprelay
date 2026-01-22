@@ -137,7 +137,7 @@ export class TlsProxy extends BaseProxy {
       this.config.PROXY_IP,
       this.config.SIP_TLS_PORT
     );
-    this.logger.info(`New proxy Via Header with branch ${branch}`);
+    this.logger.debug(`New proxy Via Header with branch ${branch}`);
 
     if (callId) {
       const remoteAddress = socket.remoteAddress || 'unknown';

@@ -50,6 +50,16 @@ export class SipMessage {
     return this.getHeader(name)[0];
   }
 
+  public getFirstHeaderInsensitive(name: string): string | undefined {
+    const lower = name.toLowerCase();
+    for (const [key, values] of this.headers.entries()) {
+      if (key.toLowerCase() === lower) {
+        return values[0];
+      }
+    }
+    return undefined;
+  }
+
   public setHeader(name: string, value: string | string[]): void {
     this.headers.set(name, Array.isArray(value) ? value : [value]);
   }
@@ -156,6 +166,9 @@ export class SipMessage {
 
   public updateSdpIp(newIp: string): void {
     if (!this.body.includes('m=')) return;
+    const contentType = this.getFirstHeaderInsensitive('Content-Type');
+    if (contentType && !contentType.toLowerCase().includes('sdp')) return;
+    if (!/(^|\r\n)c=/.test(this.body)) return;
 
     try {
       const parsed = parseSdp(this.body);

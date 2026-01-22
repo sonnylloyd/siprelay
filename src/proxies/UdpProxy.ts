@@ -93,7 +93,7 @@ export class UdpProxy extends BaseProxy {
       });
     }
 
-    this.logger.info(`Forwarding SIP request to PBX ${record.ip} (branch ${branch})`);
+    this.logger.debug(`Forwarding SIP request to PBX ${record.ip} (branch ${branch})`);
     this.udpSocket.send(Buffer.from(sipMsg.toString()), record.udpPort, record.ip);
   }
 
@@ -129,7 +129,7 @@ export class UdpProxy extends BaseProxy {
     this.registrationService.handleResponse(callId, sipMsg);
     this.prepareSipResponseForClient(sipMsg, clientInfo, 'UDP', this.config.PROXY_IP);
 
-    this.logger.info(`Forwarding SIP response to client at ${clientInfo.address}:${clientInfo.port}`);
+    this.logger.debug(`Forwarding SIP response to client at ${clientInfo.address}:${clientInfo.port}`);
     this.udpSocket.send(Buffer.from(sipMsg.toString()), clientInfo.port, clientInfo.address);
   }
 
@@ -178,7 +178,7 @@ export class UdpProxy extends BaseProxy {
       });
     }
 
-    this.logger.info(
+    this.logger.debug(
       `Forwarding PBX request for ${targetUser}@${domain} to ${binding.clientAddress}:${binding.clientPort}`
     );
     this.udpSocket.send(Buffer.from(sipMsg.toString()), binding.clientPort, binding.clientAddress);

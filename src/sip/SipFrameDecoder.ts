@@ -17,9 +17,10 @@ export class SipFrameDecoderError extends Error {
 }
 
 export class SipFrameDecoder {
-  private buffer = '';
+  private buffer = Buffer.alloc(0);
   private readonly maxMessageBytes: number;
   private readonly maxBufferBytes: number;
+  private readonly headerDelimiter = Buffer.from('\r\n\r\n');
 
   constructor(options: { maxMessageBytes?: number; maxBufferBytes?: number } = {}) {
     this.maxMessageBytes = options.maxMessageBytes ?? 64 * 1024;
@@ -27,22 +28,24 @@ export class SipFrameDecoder {
   }
 
   public feed(chunk: Buffer | string): string[] {
-    this.buffer += typeof chunk === 'string' ? chunk : chunk.toString();
-
-    if (this.buffer.length > this.maxBufferBytes) {
+    const nextChunk = typeof chunk === 'string' ? Buffer.from(chunk) : chunk;
+    if (this.buffer.length + nextChunk.length > this.maxBufferBytes) {
       throw new SipFrameDecoderError(
         SipFrameDecoderErrorCode.BUFFER_OVERFLOW,
         `Buffered data exceeded ${this.maxBufferBytes} bytes`
       );
     }
+    if (nextChunk.length) {
+      this.buffer = this.buffer.length ? Buffer.concat([this.buffer, nextChunk]) : nextChunk;
+    }
 
     const messages: string[] = [];
 
     while (true) {
-      const headerEnd = this.buffer.indexOf('\r\n\r\n');
+      const headerEnd = this.buffer.indexOf(this.headerDelimiter);
       if (headerEnd === -1) break;
 
-      const headers = this.buffer.slice(0, headerEnd);
+      const headers = this.buffer.slice(0, headerEnd).toString();
       const contentLength = this.parseContentLength(headers);
       if (contentLength === null) {
         throw new SipFrameDecoderError(
@@ -67,7 +70,7 @@ export class SipFrameDecoder {
 
       if (this.buffer.length < totalLength) break;
 
-      messages.push(this.buffer.slice(0, totalLength));
+      messages.push(this.buffer.slice(0, totalLength).toString());
       this.buffer = this.buffer.slice(totalLength);
     }
 

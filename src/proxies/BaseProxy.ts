@@ -60,7 +60,7 @@ export abstract class BaseProxy implements Proxy {
       upstreamKey?: string;
     } = {}
   ): void {
-    this.logger.info(`Storing client ${address}:${port} for Call-ID ${callId}`);
+    this.logger.debug(`Storing client ${address}:${port} for Call-ID ${callId}`);
     const existingClient = this.clientMap.get(callId);
 
     let branch = options.branch ?? existingClient?.branch;
@@ -101,7 +101,7 @@ export abstract class BaseProxy implements Proxy {
     const client = this.clientMap.get(callId);
     if (client?.timeout) clearTimeout(client.timeout);
     this.clientMap.delete(callId);
-    this.logger.info(`Removed client for Call-ID ${callId}`);
+    this.logger.debug(`Removed client for Call-ID ${callId}`);
   }
 
   protected addProxyHeaders(
