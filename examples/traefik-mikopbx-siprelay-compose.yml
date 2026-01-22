@@ -42,7 +42,9 @@ services:
     expose:
       - "8080"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    group_add:
+      - "${DOCKER_SOCK_GID}"
     environment:
       - PROXY_IP=${SIPRELAY_IP:-172.30.0.2}
       - MEDIA_MODE=passthrough
