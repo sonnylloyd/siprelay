@@ -10,7 +10,7 @@ export const createTestConfig = (overrides: Partial<Config> = {}): Config =>
     SIP_TLS_KEY_PATH: '/tmp/server.key',
     SIP_TLS_CERT_PATH: '/tmp/server.crt',
     PROXY_IP: '203.0.113.5',
-    MEDIA_MODE: 'proxy',
+    MEDIA_MODE: 'passthrough',
     ...overrides,
   } as Config);
 

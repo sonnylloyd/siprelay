@@ -22,7 +22,7 @@ const buildRegisterRequest = (callId = 'abc123'): SipMessage =>
 const buildRegisterResponse = (callId = 'abc123', contact: string, expires?: number): SipMessage => {
   const headers = [
     'SIP/2.0 200 OK',
-    'Via: SIP/2.0/UDP 203.0.113.5:15060;branch=z9hG4bK-xyz',
+    `Via: SIP/2.0/UDP 203.0.113.5:15060;branch=${buildRegisterRequest(callId).generateBranch()}`,
     `Call-ID: ${callId}`,
     'CSeq: 1 REGISTER',
     `Contact: ${contact}`,
@@ -48,10 +48,10 @@ describe('RegistrationService', () => {
     vi.spyOn(Date, 'now').mockReturnValue(now);
 
     const request = buildRegisterRequest();
-    service.trackRequest('abc123', request, { address: '192.0.2.10', port: 5060 });
+    service.trackRequest(request, { address: '192.0.2.10', port: 5060 });
 
     const response = buildRegisterResponse('abc123', '<sip:alice@192.0.2.10:5060>;expires=120');
-    service.handleResponse('abc123', response);
+    service.handleResponse(response);
 
     const binding = store.get('example.com', 'alice');
     expect(binding).toBeTruthy();
@@ -73,12 +73,38 @@ describe('RegistrationService', () => {
     });
 
     const request = buildRegisterRequest();
-    service.trackRequest('abc123', request, { address: '192.0.2.10', port: 5060 });
+    service.trackRequest(request, { address: '192.0.2.10', port: 5060 });
 
     const response = buildRegisterResponse('abc123', '*', 0);
-    service.handleResponse('abc123', response);
+    service.handleResponse(response);
 
     const binding = store.get('example.com', 'alice');
     expect(binding).toBeUndefined();
   });
+  it('ignores provisional and unrelated CSeq responses until the matching final response', () => {
+    const store = new RegistrationStore();
+    const service = new RegistrationService(store, createTestLogger());
+    service.trackRequest(buildRegisterRequest(), { address: '192.0.2.10', port: 5060 });
+    service.handleResponse(new SipMessage(buildRegisterResponse('abc123', '*', 0).toString().replace('200 OK', '100 Trying')));
+    service.handleResponse(new SipMessage(buildRegisterResponse('abc123', '*', 0).toString().replace('CSeq: 1', 'CSeq: 2')));
+    service.handleResponse(buildRegisterResponse('abc123', '<sip:alice@192.0.2.10>;expires=60'));
+    expect(store.get('example.com', 'alice')).toBeTruthy();
+  });
+
+  it('does not create bindings from queries, failed authentication or another tenant AoR', () => {
+    const store = new RegistrationStore();
+    const service = new RegistrationService(store, createTestLogger());
+    const query = buildRegisterRequest(); query.removeHeader('Contact');
+    service.trackRequest(query, { address: '192.0.2.10', port: 5060 });
+    service.handleResponse(buildRegisterResponse('abc123', '<sip:alice@192.0.2.10>;expires=60'));
+    expect(store.get('example.com', 'alice')).toBeUndefined();
+    service.trackRequest(buildRegisterRequest(), { address: '192.0.2.10', port: 5060 });
+    service.handleResponse(new SipMessage(buildRegisterResponse('abc123', '*', 0).toString().replace('200 OK', '401 Unauthorized')));
+    expect(store.get('example.com', 'alice')).toBeUndefined();
+    const otherTenant = buildRegisterRequest(); otherTenant.setHeader('To', '<sip:alice@victim.example>');
+    service.trackRequest(otherTenant, { address: '192.0.2.10', port: 5060 });
+    service.handleResponse(buildRegisterResponse('abc123', '<sip:alice@192.0.2.10>;expires=60'));
+    expect(store.get('victim.example', 'alice')).toBeUndefined();
+  });
+
 });

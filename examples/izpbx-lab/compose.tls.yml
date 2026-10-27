@@ -1,0 +1,12 @@
+# Optional verified-TLS lab profile; use together with compose.yml.
+services:
+  pbx:
+    labels:
+      sip-proxy-port-tls: "5061"
+      sip-proxy-tls-server-name: ${LAB_PBX_TLS_NAME:-pbx.test}
+  siprelay:
+    environment:
+      SIP_TLS_PORT: "15061"
+      SIP_TLS_CA_PATH: /ssl/lab-ca.crt
+    ports:
+      - "127.0.0.1:15061:15061/tcp"

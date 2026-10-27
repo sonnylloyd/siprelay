@@ -1,146 +1,159 @@
+import { splitNameAddress } from './SipUri';
+import type { Socket } from 'net';
+import type { SipTransport } from '../constants/transport';
+import { parsePushDestination } from '../push/PushDestination';
 import { RegistrationStore } from '../store';
 import { Logger } from '../logging/Logger';
 import { SipMessage } from './SipMessage';
 
-type PendingRegistration = {
+interface RegistrationClient {
+  address: string;
+  port: number;
+  transport?: SipTransport;
+  socket?: Socket;
+  flowToken?: string;
+}
+
+interface PendingRegistration {
   domain: string;
   user: string;
-  clientAddress: string;
-  clientPort: number;
+  client: RegistrationClient;
   contact?: string;
+  contacts: string[];
+  requestedExpiry: number | null;
   timeout: NodeJS.Timeout;
-};
+}
 
 export class RegistrationService {
-  private pending: Map<string, PendingRegistration>;
-  private readonly ttlMs: number;
-  private readonly logger: Logger;
-  private readonly store: RegistrationStore;
+  private readonly pending = new Map<string, PendingRegistration>();
 
-  constructor(store: RegistrationStore, logger: Logger, ttlMs = 30000) {
-    this.pending = new Map();
-    this.store = store;
-    this.logger = logger;
-    this.ttlMs = ttlMs;
-  }
+  constructor(
+    private readonly store: RegistrationStore,
+    private readonly logger: Logger,
+    private readonly ttlMs = 30_000,
+    private readonly mode: 'contact' | 'path' = 'contact'
+  ) {}
 
   public trackRequest(
-    callId: string | undefined,
     sipMsg: SipMessage,
-    client: { address: string; port: number }
+    client: RegistrationClient,
+    proxyBranch = sipMsg.generateBranch()
   ): void {
-    if (!callId) return;
-
     const aor = sipMsg.getAddressOfRecord();
-    const domain = aor?.host ?? sipMsg.getTargetHost();
-    const user = aor?.user ?? sipMsg.getTargetUser();
+    if (sipMsg.getMethod() !== 'REGISTER' || !sipMsg.getCallId() || !aor?.user || !sipMsg.hasSafeRegistration(this.mode)) return;
+    const key = sipMsg.getTransactionKey(proxyBranch);
+    const { host: domain, user } = aor;
 
-    if (!domain || !user) {
-      this.logger.warn('Unable to extract AoR from REGISTER request');
-      return;
-    }
-
-    const existing = this.pending.get(callId);
+    // A REGISTER without Contact only queries the registrar; it creates no binding.
+    if (!sipMsg.getContactHeaders().length) return;
+    if (!this.pending.has(key) && this.pending.size >= 10_000) return;
+    const existing = this.pending.get(key);
     if (existing) clearTimeout(existing.timeout);
 
-    const timeout = setTimeout(() => this.pending.delete(callId), this.ttlMs);
+    const timeout = setTimeout(() => this.pending.delete(key), this.ttlMs);
+    timeout.unref();
 
-    this.pending.set(callId, {
+    this.pending.set(key, {
       domain,
       user,
-      clientAddress: client.address,
-      clientPort: client.port,
+      client: { ...client, transport: client.transport ?? 'UDP' },
       contact: sipMsg.getContactHeaders()[0],
+      contacts: sipMsg.getContactHeaders(),
+      requestedExpiry: this.getRegistrationExpiry(sipMsg),
       timeout,
     });
   }
 
-  public handleResponse(callId: string | undefined, sipMsg: SipMessage): void {
-    if (!callId) return;
+  public handleResponse(sipMsg: SipMessage): void {
+    if (!sipMsg.getCallId()) return;
+    const key = sipMsg.getTransactionKey();
 
-    const pending = this.pending.get(callId);
+    const pending = this.pending.get(key);
     if (!pending) return;
 
-    const clearPending = () => {
-      clearTimeout(pending.timeout);
-      this.pending.delete(callId);
-    };
-
     const status = sipMsg.getStatusCode();
-    const cseqMethod = sipMsg.getCSeqMethod()?.toUpperCase();
-    if (cseqMethod !== 'REGISTER') {
-      clearPending();
-      return;
-    }
+    if (status && status < 200 && sipMsg.getCSeqMethod() === 'REGISTER') return;
 
-    if (!status || status < 200 || status >= 300) {
-      clearPending();
-      return;
-    }
-
-    const expires = this.getRegistrationExpiry(sipMsg);
-    if (expires === null) {
-      clearPending();
-      return;
-    }
-
-    if (expires === 0) {
-      const removed = this.store.remove(pending.domain, pending.user);
-      if (removed) {
-        this.logger.info(`Removed registration for ${pending.user}@${pending.domain}`);
+    try {
+      if (sipMsg.getCSeqMethod() !== 'REGISTER' || !status || status >= 300) return;
+      if (this.mode === 'path' && pending.contact !== '*') { this.applyPathBindings(pending, sipMsg); return; }
+      const expires = this.getRegistrationExpiry(sipMsg) ?? pending.requestedExpiry;
+      if (expires === null) return;
+      if (expires === 0) {
+        if (this.store.remove(pending.domain, pending.user, this.mode === 'path' && pending.contact !== '*' ? splitNameAddress(pending.contact!)?.uri : undefined)) {
+          this.logger.info(`Removed registration for ${pending.user}@${pending.domain}`);
+        }
+        return;
       }
-      clearPending();
-      return;
+      this.storeRegistration(pending, sipMsg, expires);
+    } finally {
+      this.removePending(key);
     }
+  }
 
-    const contact = sipMsg.getContactHeaders()[0] ?? pending.contact;
+  private storeRegistration(pending: PendingRegistration, response: SipMessage, expires: number, acceptedContact?: string): void {
     this.store.upsert({
+      ...(this.mode === 'path' ? { id: splitNameAddress(pending.contact!)?.uri, flowToken: pending.client.flowToken } : {}),
       domain: pending.domain,
       user: pending.user,
-      clientAddress: pending.clientAddress,
-      clientPort: pending.clientPort,
-      contact,
-      expiresAt: Date.now() + expires * 1000,
+      clientAddress: pending.client.address,
+      clientPort: pending.client.port,
+      contact: acceptedContact ?? response.getContactHeaders()[0] ?? pending.contact,
+      clientContact: pending.contact,
+      transport: pending.client.transport,
+      socket: pending.client.socket,
+      push: parsePushDestination(pending.contact),
+      expiresAt: Date.now() + expires * 1_000,
     });
-
-    clearPending();
-
     this.logger.info(
-      `Stored registration for ${pending.user}@${pending.domain} via ${pending.clientAddress}:${pending.clientPort} (expires in ${expires}s)`
+      `Stored registration for ${pending.user}@${pending.domain} via ${pending.client.address}:${pending.client.port} (expires in ${expires}s)`
     );
   }
 
-  public purgeExpiredPending(): void {
-    for (const [callId, pending] of this.pending.entries()) {
-      if (!pending.timeout) continue;
-      // timeout callback cleans itself, so nothing needed here yet; placeholder for future logic
-      if (!this.pending.has(callId)) continue;
+  private applyPathBindings(pending: PendingRegistration, response: SipMessage): void {
+    for (const contact of pending.contacts) {
+      const uri = splitNameAddress(contact)!.uri;
+      const accepted = response.getContactHeaders().find(value => splitNameAddress(value)?.uri === uri);
+      const parameters = accepted ? splitNameAddress(accepted)?.parameters : undefined;
+      const declared = parameters?.match(/(?:^|;)\s*expires\s*=\s*(\d+)\s*(?:;|$)/i)?.[1];
+      const expires = declared !== undefined ? Number(declared) : this.extractExpiresHeader(response);
+      if (expires === 0 || (!accepted && /;\s*expires\s*=\s*0\s*(?:;|$)/i.test(contact))) {
+        this.store.remove(pending.domain, pending.user, uri); continue;
+      }
+      if (!accepted || expires === null || !Number.isSafeInteger(expires) || expires < 0 || expires > 0xffff_ffff) continue;
+      this.storeRegistration({ ...pending, contact }, response, expires, accepted);
     }
+  }
+
+  private removePending(key: string): void {
+    const registration = this.pending.get(key);
+    if (registration) clearTimeout(registration.timeout);
+    this.pending.delete(key);
   }
 
   private getRegistrationExpiry(sipMsg: SipMessage): number | null {
     const contactHeaders = sipMsg.getContactHeaders();
     for (const header of contactHeaders) {
-      if (header.includes('*')) {
+      if (header.trim() === '*') {
         const expiresHeader = this.extractExpiresHeader(sipMsg);
         return expiresHeader ?? 0;
       }
-      const match = header.match(/;expires=(\d+)/i);
+      const match = header.match(/;expires=([^;\s]+)/i);
       if (match) {
-        const value = Number.parseInt(match[1], 10);
-        if (!Number.isNaN(value)) return value;
+        if (!/^\d+$/.test(match[1])) return null;
+        const value = Number(match[1]);
+        return Number.isSafeInteger(value) ? value : null;
       }
     }
 
-    const globalExpires = this.extractExpiresHeader(sipMsg);
-    if (globalExpires !== null) return globalExpires;
-    return 3600;
+    return this.extractExpiresHeader(sipMsg);
   }
 
   private extractExpiresHeader(sipMsg: SipMessage): number | null {
     const expiresHeader = sipMsg.getFirstHeader('Expires');
     if (!expiresHeader) return null;
-    const value = Number.parseInt(expiresHeader, 10);
-    return Number.isNaN(value) ? null : value;
+    if (!/^\d+$/.test(expiresHeader.trim())) return null;
+    const value = Number(expiresHeader);
+    return Number.isSafeInteger(value) ? value : null;
   }
 }

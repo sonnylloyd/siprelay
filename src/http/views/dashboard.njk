@@ -50,13 +50,14 @@
                 <th scope="col" class="px-4 py-3">Host</th>
                 <th scope="col" class="px-4 py-3">Container IP</th>
                 <th scope="col" class="px-4 py-3">UDP Port</th>
+                <th scope="col" class="px-4 py-3">TCP Port</th>
                 <th scope="col" class="px-4 py-3">TLS Port</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-800">
               {% if routes | length == 0 %}
               <tr>
-                <td colspan="4" class="px-4 py-6 text-center text-slate-500">
+                <td colspan="5" class="px-4 py-6 text-center text-slate-500">
                   No routes registered yet. Start a PBX container with the sip-proxy labels to see it here.
                 </td>
               </tr>
@@ -66,6 +67,7 @@
                 <td class="px-4 py-3 font-medium text-white">{{ route.host }}</td>
                 <td class="px-4 py-3">{{ route.ip }}</td>
                 <td class="px-4 py-3">{{ route.udpPort }}</td>
+                <td class="px-4 py-3">{{ route.tcpPort }}</td>
                 <td class="px-4 py-3">{{ route.tlsPort }}</td>
               </tr>
               {% endfor %}

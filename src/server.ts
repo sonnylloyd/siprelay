@@ -1,30 +1,25 @@
-import { Logger } from './logging/Logger';
-import { ApiServer } from './http';
-import { ServiceWatcher } from './watchers/ServiceWatcher';
-import { ProxyInitializer } from './bootstrap/ProxyInitializer';
 import { container } from './container';
 
-const logger = container.resolve<Logger>('logger');
+const logger = container.resolve('logger');
+const registrations = container.resolve('registrationStore');
 
-// Initialize Service Watcher to dynamically update PBX records
-const serviceWatcher = container.resolve<ServiceWatcher>('serviceWatcher');
-serviceWatcher.watch();
+async function main(): Promise<void> {
+  // Restore the private route key and accepted push bindings before receiving SIP.
+  await registrations.initialize();
+  container.resolve('serviceWatcher').watch();
+  container.resolve('proxyInitializer').start();
+  container.resolve('apiServer').start();
+}
 
-// Initialize Proxies
-const proxyInitializer = container.resolve<ProxyInitializer>('proxyInitializer');
-proxyInitializer.start();
-
-// Start the API server
-const apiServer = container.resolve<ApiServer>('apiServer');
-apiServer.start();
-
-// Graceful shutdown handling
-process.on('SIGINT', () => {
+let shuttingDown = false;
+async function shutdown(): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
   logger.info('Shutting down SIP Relay...');
-  process.exit(0);
-});
-
-process.on('SIGTERM', () => {
-  logger.info('Shutting down SIP Relay...');
-  process.exit(0);
-});
+  const deadline = setTimeout(() => { logger.error('Push storage shutdown timed out'); process.exit(1); }, 10_000);
+  try { await registrations.close(); clearTimeout(deadline); process.exit(0); }
+  catch { logger.error('Push storage shutdown failed'); process.exit(1); }
+}
+process.on('SIGINT', () => { void shutdown(); });
+process.on('SIGTERM', () => { void shutdown(); });
+void main().catch(() => { logger.error('SIPRelay startup failed; check configuration and push storage availability'); process.exit(1); });

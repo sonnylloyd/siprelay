@@ -1,0 +1,76 @@
+# Local signalling lab only. No connection to an existing PBX or production volumes.
+name: siprelay-izpbx-lab
+services:
+  db:
+    image: mariadb:10.11.19
+    environment:
+      MYSQL_ROOT_PASSWORD: ${LAB_DB_ROOT_PASSWORD:?Run prepare.sh first}
+      MYSQL_DATABASE: asterisk
+      MYSQL_USER: asterisk
+      MYSQL_PASSWORD: ${LAB_DB_PASSWORD:?Run prepare.sh first}
+    command: --sql-mode=ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION
+    volumes:
+      - db:/var/lib/mysql
+    networks: [lab]
+    healthcheck:
+      test: [CMD, healthcheck.sh, --connect, --innodb_initialized]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  pbx:
+    image: izdock/izpbx-asterisk:20.16.22
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      APP_DATA: /data
+      TZ: Europe/London
+      MYSQL_SERVER: db
+      MYSQL_DATABASE: asterisk
+      MYSQL_DATABASE_CDR: asteriskcdrdb
+      MYSQL_USER: asterisk
+      MYSQL_PASSWORD: ${LAB_DB_PASSWORD:?Run prepare.sh first}
+      MYSQL_ROOT_PASSWORD: ${LAB_DB_ROOT_PASSWORD:?Run prepare.sh first}
+      # Fail2ban needs host firewall privileges, unnecessary for a loopback-only lab.
+      FAIL2BAN_ENABLED: "false"
+      FAIL2BAN_ASTERISK_ENABLED: "false"
+    labels:
+      sip-proxy-host: pbx.test
+      sip-proxy-port-udp: "5060"
+      sip-proxy-port-tcp: "5060" # Enabled by provision.cjs for the isolated tests.
+    ports:
+      - "127.0.0.1:18081:80/tcp"
+    volumes:
+      - pbx:/data
+    networks: [lab]
+
+  siprelay:
+    build: ../..
+    depends_on: [pbx]
+    environment:
+      PROXY_IP: 172.30.231.10
+      SIP_REGISTRATION_MODE: path
+      SIP_UDP_PORT: "15060"
+      SIP_TCP_PORT: "15060"
+    group_add:
+      - ${DOCKER_SOCK_GID:?Run prepare.sh first}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "127.0.0.1:15060:15060/udp"
+      - "127.0.0.1:15060:15060/tcp"
+      - "127.0.0.1:18080:8080/tcp"
+    networks:
+      lab:
+        ipv4_address: 172.30.231.10
+
+networks:
+  lab:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.231.0/24
+volumes:
+  db:
+  pbx:

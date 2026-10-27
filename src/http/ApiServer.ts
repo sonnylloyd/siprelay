@@ -9,16 +9,15 @@ import { createApiRoutes } from './routes';
 import { Config } from '../configurations';
 
 export class ApiServer {
-  private app = express();
-  private config: Config;
-  private logger: Logger;
-  private records: IRecordStore;
-  private dashboardController: DashboardController;
+  private readonly app = express();
+  private readonly dashboardController: DashboardController;
 
-  constructor(config: Config, logger: Logger, records: IRecordStore) {
-    this.config = config;
-    this.logger = logger;
-    this.records = records;
+  constructor(
+    private readonly config: Config,
+    private readonly logger: Logger,
+    private readonly records: IRecordStore,
+    private readonly storageHealthy = () => true
+  ) {
     this.dashboardController = new DashboardController(records);
 
     this.setupMiddleware();
@@ -34,7 +33,7 @@ export class ApiServer {
         })
       );
     }
-    this.app.use(express.json()); // Enable JSON request parsing
+    this.app.disable('x-powered-by');
     const staticPath = path.join(__dirname, '..', 'images');
     this.app.use('/static', express.static(staticPath));
   }
@@ -52,7 +51,7 @@ export class ApiServer {
 
   private setupRoutes(): void {
     this.app.get('/', this.dashboardController.render.bind(this.dashboardController));
-    this.app.use('/api', createApiRoutes(this.records));
+    this.app.use('/api', createApiRoutes(this.records, this.storageHealthy));
   }
 
   public start(): void {

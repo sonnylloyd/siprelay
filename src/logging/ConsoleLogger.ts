@@ -21,22 +21,22 @@ export class ConsoleLogger implements Logger {
     return LOG_LEVELS[level] <= this.level;
   }
 
-  public debug(message: string, meta?: any): void {
+  public debug(message: string, meta?: unknown): void {
     if (!this.shouldLog('debug')) return;
     console.debug(`[DEBUG] ${message}`, meta || '');
   }
 
-  public info(message: string, meta?: any): void {
+  public info(message: string, meta?: unknown): void {
     if (!this.shouldLog('info')) return;
     console.log(`[INFO] ${message}`, meta || '');
   }
 
-  public warn(message: string, meta?: any): void {
+  public warn(message: string, meta?: unknown): void {
     if (!this.shouldLog('warn')) return;
     console.warn(`[WARN] ${message}`, meta || '');
   }
 
-  public error(message: string, meta?: any): void {
+  public error(message: string, meta?: unknown): void {
     if (!this.shouldLog('error')) return;
     console.error(`[ERROR] ${message}`, meta || '');
   }

@@ -18,6 +18,7 @@ export class SipFrameDecoderError extends Error {
 
 export class SipFrameDecoder {
   private buffer = Buffer.alloc(0);
+  private keepaliveLine = false;
   private readonly maxMessageBytes: number;
   private readonly maxBufferBytes: number;
   private readonly headerDelimiter = Buffer.from('\r\n\r\n');
@@ -27,7 +28,11 @@ export class SipFrameDecoder {
     this.maxBufferBytes = options.maxBufferBytes ?? 256 * 1024;
   }
 
-  public feed(chunk: Buffer | string): string[] {
+  public feed(chunk: Buffer | string, onKeepalivePing?: () => void): string[] {
+    return this.feedBuffers(chunk, onKeepalivePing).map(frame => frame.toString());
+  }
+
+  public feedBuffers(chunk: Buffer | string, onKeepalivePing?: () => void): Buffer[] {
     const nextChunk = typeof chunk === 'string' ? Buffer.from(chunk) : chunk;
     if (this.buffer.length + nextChunk.length > this.maxBufferBytes) {
       throw new SipFrameDecoderError(
@@ -39,11 +44,23 @@ export class SipFrameDecoder {
       this.buffer = this.buffer.length ? Buffer.concat([this.buffer, nextChunk]) : nextChunk;
     }
 
-    const messages: string[] = [];
+    const messages: Buffer[] = [];
 
     while (true) {
+      // RFC 3261 allows leading CRLF between messages, including fragmented CRLF.
+      while (this.buffer.length >= 2 && this.buffer[0] === 13 && this.buffer[1] === 10) {
+        this.buffer = this.buffer.subarray(2);
+        this.keepaliveLine = !this.keepaliveLine;
+        if (!this.keepaliveLine) onKeepalivePing?.();
+      }
+      if (this.buffer.length && this.buffer[0] !== 13) this.keepaliveLine = false;
       const headerEnd = this.buffer.indexOf(this.headerDelimiter);
-      if (headerEnd === -1) break;
+      if (headerEnd === -1) {
+        if (this.buffer.length > this.maxMessageBytes) {
+          throw new SipFrameDecoderError(SipFrameDecoderErrorCode.MESSAGE_TOO_LARGE, 'SIP headers exceed message limit');
+        }
+        break;
+      }
 
       const headers = this.buffer.slice(0, headerEnd).toString();
       const contentLength = this.parseContentLength(headers);
@@ -70,7 +87,7 @@ export class SipFrameDecoder {
 
       if (this.buffer.length < totalLength) break;
 
-      messages.push(this.buffer.subarray(0, totalLength).toString());
+      messages.push(Buffer.from(this.buffer.subarray(0, totalLength)));
       this.buffer = this.buffer.subarray(totalLength);
     }
 
@@ -78,10 +95,12 @@ export class SipFrameDecoder {
   }
 
   private parseContentLength(headers: string): number | null {
-    const match = headers.match(/Content-Length:\s*(\d+)/i);
-    if (!match) return 0;
-    const len = Number.parseInt(match[1], 10);
-    if (!Number.isFinite(len) || len < 0) return null;
-    return len;
+    const lengths = headers.replace(/\r\n[ \t]+/g, ' ').split('\r\n').slice(1)
+      .filter(line => /^(?:Content-Length|l)\s*:/i.test(line))
+      .map(line => line.slice(line.indexOf(':') + 1).trim());
+    // A stream needs an unambiguous boundary; aliases count as duplicates too.
+    if (lengths.length !== 1 || !/^\d+$/.test(lengths[0])) return null;
+    const len = Number(lengths[0]);
+    return Number.isSafeInteger(len) ? len : null;
   }
 }

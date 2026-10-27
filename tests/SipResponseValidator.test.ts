@@ -64,3 +64,19 @@ describe('SipResponseValidator', () => {
     expect(result.ok).toBe(true);
   });
 });
+
+describe('response Via validation', () => {
+  it('rejects a mismatched expected branch', () => {
+    const validator = new SipResponseValidator(createTestLogger());
+    const result = validator.validate({ callId: 'resp123', expectedProxyBranch: 'expected', sipMessage: buildResponse('wrong') });
+    expect(result).toMatchObject({ ok: false, reason: expect.stringContaining('Via branch mismatch') });
+  });
+
+  it.each([undefined, 'SIP/2.0/UDP relay;rport'])('rejects a missing expected Via branch in %s', via => {
+    const message = buildResponse();
+    if (via) message.setHeader('Via', via); else message.removeHeader('Via');
+    const validator = new SipResponseValidator(createTestLogger());
+    expect(validator.validate({ callId: 'resp123', expectedProxyBranch: 'expected', sipMessage: message }))
+      .toEqual({ ok: false, reason: 'Via branch missing on response' });
+  });
+});

@@ -1,14 +1,16 @@
-import type tls from 'tls';
+import type { Socket } from 'net';
 import { Logger } from '../logging/Logger';
 import { SipMessage } from './SipMessage';
 
 export interface SipResponseValidationInput {
   callId?: string;
+  expectedFromTag?: string;
+  expectedToTag?: string;
   expectedUpstreamKey?: string;
   actualUpstreamKey?: string;
   expectedProxyBranch?: string;
-  expectedSocket?: tls.TLSSocket;
-  actualSocket?: tls.TLSSocket;
+  expectedSocket?: Socket;
+  actualSocket?: Socket;
   sipMessage: SipMessage;
 }
 
@@ -29,7 +31,6 @@ export class SipResponseValidator {
 
     if (
       input.expectedUpstreamKey &&
-      input.actualUpstreamKey &&
       input.expectedUpstreamKey !== input.actualUpstreamKey
     ) {
       return {
@@ -38,11 +39,16 @@ export class SipResponseValidator {
       };
     }
 
-    if (input.expectedSocket && input.actualSocket && input.expectedSocket !== input.actualSocket) {
+    if (input.expectedSocket && input.expectedSocket !== input.actualSocket) {
       return {
         ok: false,
         reason: 'response arrived on unexpected socket for client',
       };
+    }
+
+    if ((input.expectedFromTag && input.sipMessage.getFromTag() !== input.expectedFromTag)
+      || (input.expectedToTag && input.sipMessage.getToTag() !== input.expectedToTag)) {
+      return { ok: false, reason: 'response dialog tags do not match its request' };
     }
 
     const topVia = input.sipMessage.getTopVia();

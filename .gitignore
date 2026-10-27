@@ -3,3 +3,14 @@
 /dist
 tests/**/*.js
 /certs
+/coverage
+**/.env
+/examples/izpbx-lab/.lab-credentials.json
+/examples/izpbx-lab/.tls/
+
+/examples/izpbx-lab/.lab-credentials-b.json
+
+# Push registration databases and private route signing keys
+/data/
+**/*.sqlite
+**/*.sqlite-*

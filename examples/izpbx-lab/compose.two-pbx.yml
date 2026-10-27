@@ -1,0 +1,49 @@
+# Optional second tenant. Its database and PBX state are separate from the first tenant.
+services:
+  db-b:
+    image: mariadb:10.11.19
+    environment:
+      MYSQL_ROOT_PASSWORD: ${LAB_DB_ROOT_PASSWORD:?Run prepare.sh first}
+      MYSQL_DATABASE: asterisk
+      MYSQL_USER: asterisk
+      MYSQL_PASSWORD: ${LAB_DB_PASSWORD:?Run prepare.sh first}
+    command: --sql-mode=ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION
+    volumes:
+      - db-b:/var/lib/mysql
+    networks: [lab]
+    healthcheck:
+      test: [CMD, healthcheck.sh, --connect, --innodb_initialized]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  pbx-b:
+    image: izdock/izpbx-asterisk:20.16.22
+    depends_on:
+      db-b:
+        condition: service_healthy
+    environment:
+      APP_DATA: /data
+      TZ: Europe/London
+      MYSQL_SERVER: db-b
+      MYSQL_DATABASE: asterisk
+      MYSQL_DATABASE_CDR: asteriskcdrdb
+      MYSQL_USER: asterisk
+      MYSQL_PASSWORD: ${LAB_DB_PASSWORD:?Run prepare.sh first}
+      MYSQL_ROOT_PASSWORD: ${LAB_DB_ROOT_PASSWORD:?Run prepare.sh first}
+      FAIL2BAN_ENABLED: "false"
+      FAIL2BAN_ASTERISK_ENABLED: "false"
+    labels:
+      sip-proxy-host: pbx-b.test
+      sip-proxy-port-udp: "5060"
+      sip-proxy-port-tcp: "5060"
+      sip-proxy-port-tls: "5061"
+      sip-proxy-tls-server-name: pbx-b.test
+    ports:
+      - "127.0.0.1:18082:80/tcp"
+    volumes:
+      - pbx-b:/data
+    networks: [lab]
+volumes:
+  db-b:
+  pbx-b:

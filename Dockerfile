@@ -1,14 +1,14 @@
 # ----------------------
 # 1️⃣ BUILD STAGE
 # ----------------------
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 
 # Set working directory
 WORKDIR /app
 
 # Install dependencies first for better caching
 COPY package.json package-lock.json ./
-RUN npm install
+RUN npm ci --ignore-scripts
 
 # Copy the full source code
 COPY tsconfig.json ./
@@ -17,24 +17,21 @@ COPY images ./images
 COPY src ./src
 
 # Compile TypeScript to JavaScript and copy static assets
-RUN npm run build
+RUN npm run build && npm prune --omit=dev --ignore-scripts --no-audit --no-fund
 
 # ----------------------
 # 2️⃣ RUN STAGE
 # ----------------------
-FROM node:20-alpine
+FROM node:22-alpine
 
 # Create non-root user/group
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
 # Create the /ssl directory and ensure it's writable by appuser
-RUN mkdir -p /ssl && chown -R appuser:appgroup /ssl
+RUN mkdir -p /ssl /data && chown -R appuser:appgroup /ssl /data && chmod 700 /data
 
 # Set working directory
 WORKDIR /app
-
-# Install Docker CLI (needed to interact with Docker API)
-RUN apk add --no-cache docker-cli
 
 # Install curl
 RUN apk add --no-cache curl
@@ -49,6 +46,7 @@ RUN chown -R appuser:appgroup /app
 
 # Expose SIP (UDP/TCP) and HTTP API ports
 EXPOSE 5060/udp
+EXPOSE 5060/tcp
 EXPOSE 5061/tcp
 EXPOSE 8080/tcp
 

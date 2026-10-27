@@ -4,21 +4,36 @@ services:
     image: siprelay:latest
     build: .
     restart: always
-    #environment:
-      #- API_PORT=8080
-      #- SIP_UDP_PORT=5060
-      #- SIP_TLS_PORT=5061
-      #- SIP_TLS_KEY_PATH=/ssl/server.key
-      #- SIP_TLS_CERT_PATH=/ssl/server.cert
+    environment:
+      SIP_UDP_ENABLED: ${SIP_UDP_ENABLED:-1}
+      SIP_TCP_ENABLED: ${SIP_TCP_ENABLED:-${SIP_UDP_ENABLED:-1}}
+      SIP_REGISTRATION_MODE: ${SIP_REGISTRATION_MODE:-path}
+      PUSH_STORAGE: ${PUSH_STORAGE:-memory}
+      PUSH_SQLITE_PATH: ${PUSH_SQLITE_PATH:-/data/push.sqlite}
+      PUSH_MYSQL_HOST: ${PUSH_MYSQL_HOST:-localhost}
+      PUSH_MYSQL_PORT: ${PUSH_MYSQL_PORT:-3306}
+      PUSH_MYSQL_DATABASE: ${PUSH_MYSQL_DATABASE:-siprelay}
+      PUSH_MYSQL_USER: ${PUSH_MYSQL_USER:-siprelay}
+      PUSH_MYSQL_PASSWORD: ${PUSH_MYSQL_PASSWORD:-}
+      PUSH_MYSQL_TLS: ${PUSH_MYSQL_TLS:-1}
+      PUSH_MYSQL_CA_PATH: ${PUSH_MYSQL_CA_PATH:-}
+      # Mount a private MySQL CA at PUSH_MYSQL_CA_PATH if needed; see docs/push-storage.md
+      # HTTP_PORT: 8080
+      # SIP_UDP_PORT: 5060
+      # SIP_TLS_PORT: 5061
+      # SIP_TLS_KEY_PATH: /ssl/server.key
+      # SIP_TLS_CERT_PATH: /ssl/server.crt
     ports:
       - "5060:5060/udp"
+      - "5060:5060/tcp"
       - "5061:5061/tcp"
-      - "8080:8080/tcp"
+      - "127.0.0.1:8080:8080/tcp"
     volumes:
+      - push-data:/data
       #- ./ssl:/ssl
-      - /var/run/docker.sock:/var/run/docker.sock:ro  # Allow watching Docker events (read-only)
+      - /var/run/docker.sock:/var/run/docker.sock:ro  # Docker API access is privileged, even with a read-only mount
     group_add:
-      - "${DOCKER_SOCK_GID}" # Match host docker.sock GID for read access
+      - "${DOCKER_SOCK_GID}" # Grants privileged Docker API access; restrict this deployment
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
       interval: 30s
@@ -30,3 +45,6 @@ services:
 networks:
   sip-net:
     driver: bridge
+
+volumes:
+  push-data:

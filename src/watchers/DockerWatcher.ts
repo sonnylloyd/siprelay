@@ -14,19 +14,17 @@ interface DockerEvent {
 }
 
 export class DockerWatcher implements ServiceWatcher {
-  private docker: Docker;
-  private records: IRecordStore;
-  private logger: Logger;
-  private containerHosts: Map<string, string>;
+  private readonly containerHosts = new Map<string, string>();
+  private readonly hostnameOwners = new Map<string, string>();
+  private eventQueue: Promise<void> = Promise.resolve();
   private eventBuffer = '';
   private readonly inspectConcurrency = 5;
 
-  constructor(records: IRecordStore, logger: Logger) {
-    this.docker = new Docker();
-    this.records = records;
-    this.logger = logger;
-    this.containerHosts = new Map();
-  }
+  constructor(
+    private readonly records: IRecordStore,
+    private readonly logger: Logger,
+    private readonly docker = new Docker()
+  ) {}
 
   public async update(): Promise<void> {
     try {
@@ -69,7 +67,7 @@ export class DockerWatcher implements ServiceWatcher {
     const activeHostnames = new Set<string>();
     for (const container of containers) {
       const labelHost = container.Labels?.[Labels.SIP_PROXY_HOST];
-      if (labelHost) activeHostnames.add(labelHost);
+      if (labelHost) activeHostnames.add(labelHost.toLowerCase());
     }
     return activeHostnames;
   }
@@ -77,12 +75,7 @@ export class DockerWatcher implements ServiceWatcher {
   private purgeMissingContainers(seenContainerIds: Set<string>): void {
     for (const containerId of this.containerHosts.keys()) {
       if (!seenContainerIds.has(containerId)) {
-        const hostname = this.containerHosts.get(containerId);
-        if (hostname) {
-          this.records.deleteRecord(hostname);
-          this.logger.info(`Record removed (stale): ${hostname}`);
-        }
-        this.containerHosts.delete(containerId);
+        this.handleStopEvent(containerId);
       }
     }
   }
@@ -115,9 +108,11 @@ export class DockerWatcher implements ServiceWatcher {
         ip: routing.ip ?? routing.hostname,
         udpPort: routing.udpPort,
         tlsPort: routing.tlsPort,
+        ...(routing.tcpPort ? { tcpPort: routing.tcpPort } : {}),
+        ...(routing.tlsServerName ? { tlsServerName: routing.tlsServerName } : {}),
       };
 
-      if (!routing.udpPort && !routing.tlsPort) {
+      if (!routing.udpPort && !routing.tlsPort && !routing.tcpPort) {
         this.logger.warn(`No SIP port labels found for container ${containerId} (hostname: ${routing.hostname})`);
         return;
       }
@@ -125,18 +120,20 @@ export class DockerWatcher implements ServiceWatcher {
       const existing = this.records.getRecord(routing.hostname);
       if (existing && this.recordsEqual(existing, record)) {
         this.containerHosts.set(containerId, routing.hostname);
+        this.hostnameOwners.set(routing.hostname, containerId);
         return;
       }
 
       this.records.addRecord(routing.hostname, record);
       this.containerHosts.set(containerId, routing.hostname);
+      this.hostnameOwners.set(routing.hostname, containerId);
 
       const action = existing ? 'Updated' : 'Added';
       this.logger.info(`${action} record: ${routing.hostname} → ${JSON.stringify(record)}`);
     } catch (error) {
       this.logger.error(`Error processing container ${containerId}:`, error);
     }
-  } 
+  }
 
   private async fetchContainerInfo(containerId: string): Promise<ContainerInspectInfo | null> {
     try {
@@ -165,7 +162,7 @@ export class DockerWatcher implements ServiceWatcher {
   }
 
   private recordsEqual(a: IPValue, b: IPValue): boolean {
-    return a.ip === b.ip && a.udpPort === b.udpPort && a.tlsPort === b.tlsPort;
+    return a.ip === b.ip && a.udpPort === b.udpPort && a.tlsPort === b.tlsPort && a.tcpPort === b.tcpPort && a.tlsServerName === b.tlsServerName;
   }
 
   private extractRoutingInfo(info: ContainerInspectInfo | ContainerInfo): {
@@ -173,6 +170,8 @@ export class DockerWatcher implements ServiceWatcher {
     ip?: string;
     udpPort?: number;
     tlsPort?: number;
+    tcpPort?: number;
+    tlsServerName?: string;
   } | null {
     const labels = this.extractLabels(info);
     const hostname = labels?.[Labels.SIP_PROXY_HOST];
@@ -180,20 +179,25 @@ export class DockerWatcher implements ServiceWatcher {
 
     const udpPort = this.parsePort(labels?.[Labels.SIP_PROXY_PORT_UDP]);
     const tlsPort = this.parsePort(labels?.[Labels.SIP_PROXY_PORT_TLS]);
+    const tcpPort = this.parsePort(labels?.[Labels.SIP_PROXY_PORT_TCP]);
+    const tlsServerName = labels?.[Labels.SIP_PROXY_TLS_SERVER_NAME]?.trim().toLowerCase();
+    if (tlsServerName && !/^(?=.{1,253}$)[a-z\d](?:[a-z\d.-]*[a-z\d])?$/.test(tlsServerName)) return null;
     const explicitIp = labels?.[Labels.SIP_PROXY_IP];
 
     return {
-      hostname,
+      hostname: hostname.toLowerCase(),
       ip: explicitIp ?? this.extractNetworkIp(info) ?? this.extractName(info),
       udpPort,
       tlsPort,
+      tcpPort,
+      tlsServerName,
     };
   }
 
   private parsePort(port?: string): number | undefined {
     if (!port) return undefined;
     const parsed = Number(port);
-    return Number.isFinite(parsed) ? parsed : undefined;
+    return Number.isInteger(parsed) && parsed >= 1 && parsed <= 65535 ? parsed : undefined;
   }
 
   private extractName(info: ContainerInspectInfo | ContainerInfo): string | undefined {
@@ -221,7 +225,6 @@ export class DockerWatcher implements ServiceWatcher {
     return undefined;
   }
 
-
   public async watch(): Promise<void> {
     this.logger.info('DockerWatcher started. Listening for container events...');
 
@@ -231,10 +234,16 @@ export class DockerWatcher implements ServiceWatcher {
         label: [Labels.SIP_PROXY_HOST],
       },
     };
-    
+
     const eventStream = await this.docker.getEvents(eventOptions);
 
-    eventStream.on('data', (chunk: Buffer) => this.handleEventChunk(chunk));
+    // Reconciliation and event inspection share one queue so delayed starts cannot overtake stops.
+    this.eventQueue = this.update();
+    eventStream.on('data', (chunk: Buffer) => {
+      this.eventQueue = this.eventQueue.then(() => this.handleEventChunk(chunk)).catch(error => {
+        this.logger.error('Error processing Docker event:', error);
+      });
+    });
 
     eventStream.on('error', (error) => {
       this.logger.error('Docker event stream error:', error);
@@ -244,7 +253,7 @@ export class DockerWatcher implements ServiceWatcher {
       this.logger.warn('Docker event stream ended');
     });
 
-    await this.update(); // Initial load
+    await this.eventQueue;
   }
 
   private parseEvent(raw: string): DockerEvent | null {
@@ -252,7 +261,13 @@ export class DockerWatcher implements ServiceWatcher {
     if (!trimmed) return null;
 
     try {
-      return JSON.parse(trimmed) as DockerEvent;
+      const event = JSON.parse(trimmed) as Partial<DockerEvent> | null;
+      if (!event || typeof event.Type !== 'string' || typeof event.Action !== 'string'
+        || typeof event.Actor?.ID !== 'string') return null;
+      if (event.Actor.Attributes !== undefined && (event.Actor.Attributes === null
+        || typeof event.Actor.Attributes !== 'object'
+        || Object.values(event.Actor.Attributes).some(value => typeof value !== 'string'))) return null;
+      return event as DockerEvent;
     } catch (error) {
       this.logger.error('Error parsing event:', error);
       return null;
@@ -292,12 +307,16 @@ export class DockerWatcher implements ServiceWatcher {
   }
 
   private handleStopEvent(containerId: string, fallbackHostname?: string): void {
-    const hostname = this.containerHosts.get(containerId) ?? fallbackHostname;
+    const hostname = (this.containerHosts.get(containerId) ?? fallbackHostname)?.toLowerCase();
     if (!hostname) {
       this.logger.warn(`Unable to resolve hostname for container ${containerId} on stop event`);
       return;
     }
 
+    const owner = this.hostnameOwners.get(hostname);
+    this.containerHosts.delete(containerId);
+    if (owner && owner !== containerId) return;
+    this.hostnameOwners.delete(hostname);
     this.logger.info(`Docker event: stop -> ${hostname}`);
     if (this.records.deleteRecord(hostname)) {
       this.logger.info(`Record removed: ${hostname}`);

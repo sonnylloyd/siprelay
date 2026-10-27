@@ -1,0 +1,21 @@
+.git
+node_modules
+dist
+coverage
+.env
+.env.*
+!.env.example
+ssl
+**/*.key
+**/*.pem
+**/*service-account*.json
+npm-debug.log*
+**/.tls
+**/.lab-credentials.json
+
+**/.lab-credentials-b.json
+
+# Push registration databases and private route signing keys
+/data/
+**/*.sqlite
+**/*.sqlite-*

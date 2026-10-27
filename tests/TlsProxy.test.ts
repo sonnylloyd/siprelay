@@ -1,3 +1,6 @@
+import { PushSender } from '../src/push/types';
+import { PushCoordinator } from '../src/push/PushCoordinator';
+import { SipMessage } from '../src/sip';
 import { EventEmitter } from 'events';
 import { setImmediate } from 'timers';
 import tls from 'tls';
@@ -14,7 +17,7 @@ class FakeTLSSocket extends EventEmitter {
   public remoteAddress?: string;
   public remotePort?: number;
 
-  constructor(private readonly name: string) {
+  constructor(_name: string) {
     super();
   }
 
@@ -39,14 +42,14 @@ class FakeTLSSocket extends EventEmitter {
 }
 
 class FakeTlsServer {
-  private listener?: tls.ConnectionListener;
+  private listener?: ((socket: tls.TLSSocket) => void);
 
   listen(_port: number, _host: string, cb?: () => void): this {
     cb?.();
     return this;
   }
 
-  setListener(listener: tls.ConnectionListener): void {
+  setListener(listener: ((socket: tls.TLSSocket) => void)): void {
     this.listener = listener;
   }
 
@@ -73,6 +76,7 @@ const createSipResponse = (branch: string, callId = 'call-1'): string =>
   [
     'SIP/2.0 200 OK',
     `Via: SIP/2.0/TLS 203.0.113.5:5061;branch=${branch}`,
+    'Via: SIP/2.0/TLS 198.51.100.20:5092;branch=z9hG4bK-client;rport',
     'From: <sip:alice@example.com>;tag=abc',
     'To: <sip:bob@example.com>;tag=xyz',
     `Call-ID: ${callId}`,
@@ -92,6 +96,7 @@ describe('TlsProxy', () => {
   let logger: Logger;
   let config: Config;
   let registrationStore: RegistrationStore;
+  let pushSender: PushSender;
 
   beforeEach(() => {
     clientSocket = new FakeTLSSocket('client');
@@ -102,8 +107,9 @@ describe('TlsProxy', () => {
     logger = createTestLogger();
     config = createTestConfig({ SIP_TLS_PORT: 5061, PROXY_IP: '203.0.113.5' });
     registrationStore = new RegistrationStore();
+    pushSender = { supports: () => true, send: vi.fn().mockResolvedValue(undefined) };
 
-    const serverFactory = vi.fn((_options: tls.TlsOptions, listener: tls.ConnectionListener) => {
+    const serverFactory = vi.fn((_options: tls.TlsOptions, listener: ((socket: tls.TLSSocket) => void)) => {
       fakeServer.setListener(listener);
       return fakeServer as unknown as tls.Server;
     });
@@ -118,6 +124,7 @@ describe('TlsProxy', () => {
 
     tlsProxy = new TlsProxy(records, config, logger, registrationStore, {
       tlsOptions: { key: Buffer.from('key'), cert: Buffer.from('cert') },
+      pushCoordinator: new PushCoordinator(registrationStore, pushSender, logger),
       serverFactory,
       tlsConnect,
     });
@@ -135,7 +142,7 @@ describe('TlsProxy', () => {
     expect(upstreamSocket.writes).toHaveLength(1);
     expect(upstreamSocket.writes[0]).toContain('SIP/2.0/TLS 203.0.113.5:5061');
 
-    const storedClient = (tlsProxy as any).clientMap.get('call-1');
+    const storedClient = (tlsProxy as any).clientMap.values().next().value;
     expect(storedClient?.socket).toBe(clientSocket);
   });
 
@@ -144,7 +151,7 @@ describe('TlsProxy', () => {
     clientSocket.emitData(request);
     await flushAsync();
 
-    const storedClient = (tlsProxy as any).clientMap.get('call-1');
+    const storedClient = (tlsProxy as any).clientMap.values().next().value;
     const proxyBranch = storedClient?.proxyBranch as string;
     expect(proxyBranch).toBeTruthy();
 
@@ -155,4 +162,74 @@ describe('TlsProxy', () => {
     expect(clientSocket.writes).toHaveLength(1);
     expect(clientSocket.writes[0]).toContain('SIP/2.0/TLS 198.51.100.20:5092');
   });
+  it('wakes a disconnected TLS phone and delivers only after its authenticated registration refresh', async () => {
+    const register = (id: string) => createSipRequest('pbx.internal', id)
+      .replaceAll('INVITE', 'REGISTER')
+      .replace('To: <sip:bob@example.com>', 'To: <sip:alice@pbx.internal>')
+      .replace('Contact: <sip:alice@198.51.100.20>',
+        'Contact: <sip:alice@198.51.100.20;pn-provider=fcm;pn-param=our-project;pn-prid=secret>');
+    const acceptRegister = (index: number, id: string) => {
+      const request = new SipMessage(upstreamSocket.writes[index]);
+      const response = createSipResponse(request.getBranchFromVia(request.getTopVia()!)!, id)
+        .replace('CSeq: 1 INVITE', 'CSeq: 1 REGISTER')
+        .replace('Content-Length: 0', 'Contact: <sip:alice@203.0.113.5>;expires=600\r\nContent-Length: 0');
+      upstreamSocket.emitData(response);
+    };
+    clientSocket.emitData(register('register-old'));
+    await flushAsync();
+    acceptRegister(0, 'register-old');
+    await flushAsync();
+    expect(registrationStore.get('pbx.internal', 'alice')?.socket).toBe(clientSocket);
+    clientSocket.destroy();
+
+    const incoming = createSipRequest('alice@203.0.113.5', 'incoming')
+      .replace('To: <sip:bob@example.com>', 'To: <sip:alice@pbx.internal>');
+    upstreamSocket.emitData(incoming);
+    await flushAsync();
+    expect(pushSender.send).toHaveBeenCalledTimes(1);
+    expect(upstreamSocket.writes.at(-1)).toContain('100 Trying');
+
+    const fresh = new FakeTLSSocket('woken-phone');
+    fresh.remoteAddress = '198.51.100.22'; fresh.remotePort = 5099;
+    fakeServer.accept(fresh);
+    fresh.emitData(register('register-new'));
+    await flushAsync();
+    const registrationIndex = upstreamSocket.writes.length - 1;
+    expect(fresh.writes).toHaveLength(0);
+    acceptRegister(registrationIndex, 'register-new');
+    await flushAsync();
+    expect(fresh.writes[0]).toContain('CSeq: 1 REGISTER');
+    expect(fresh.writes[1]).toContain('Call-ID: incoming');
+    expect(fresh.writes[1]).toContain('INVITE');
+
+    const invite = new SipMessage(fresh.writes[1]);
+    const response = createSipResponse(invite.getBranchFromVia(invite.getTopVia()!)!, 'incoming');
+    fresh.emitData(response);
+    await flushAsync();
+    const forwarded = new SipMessage(upstreamSocket.writes.at(-1)!);
+    expect(forwarded.getHeader('Via')).toHaveLength(1);
+    expect(forwarded.getTopVia()).toContain('z9hG4bK-client');
+  });
+
+  it('accepts a new TLS connection from a discovered PBX and pins responses to the phone socket', async () => {
+    registrationStore.upsert({ domain: 'pbx.internal', user: 'alice', clientAddress: '198.51.100.20', clientPort: 5092,
+      transport: 'TLS', socket: clientSocket as any, expiresAt: Date.now() + 60000 });
+    const pbx = new FakeTLSSocket('pbx'); pbx.remoteAddress = '::ffff:10.0.0.50'; pbx.remotePort = 55000;
+    fakeServer.accept(pbx);
+    pbx.emitData(createSipRequest('alice@203.0.113.5', 'pbx-new-connection')
+      .replace('To: <sip:bob@example.com>', 'To: <sip:alice@pbx.internal>'));
+    await flushAsync();
+    expect(clientSocket.writes).toHaveLength(1);
+    const forwarded = new SipMessage(clientSocket.writes[0]);
+    const response = createSipResponse(forwarded.getBranchFromVia(forwarded.getTopVia()!)!, 'pbx-new-connection');
+    const attacker = new FakeTLSSocket('attacker'); attacker.remoteAddress = '198.51.100.99';
+    fakeServer.accept(attacker); attacker.emitData(response);
+    await flushAsync();
+    expect(pbx.writes).toHaveLength(0);
+    clientSocket.emitData(response);
+    await flushAsync();
+    expect(pbx.writes).toHaveLength(1);
+    expect(new SipMessage(pbx.writes[0]).getHeader('Via')).toHaveLength(1);
+  });
+
 });

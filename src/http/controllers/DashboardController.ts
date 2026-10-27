@@ -11,6 +11,7 @@ export class DashboardController {
         host,
         ip: value.ip,
         udpPort: value.udpPort ?? '—',
+        tcpPort: value.tcpPort ?? '—',
         tlsPort: value.tlsPort ?? '—',
       }))
       .sort((a, b) => a.host.localeCompare(b.host));
